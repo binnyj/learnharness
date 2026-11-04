@@ -1,25 +1,35 @@
-# LearnHarness security and interview workspace checklist
+# LearnHarness security and code-input checklist
 
-Created: 2026-11-03
+Created: 2026-11-03. Rewritten 2026-11-03: interview mode dropped; learning comes first.
 
-Status: Phase 1 (security foundations) complete for the supported setup: local, single-user, browser mode via `npm run dev` on macOS (decided 2026-11-03). Items that only apply to remote hosting, the packaged desktop app, or other operating systems are marked N/A with the reason. See `docs/security-hardening.md` for boundaries, limitations, and evidence. Interview workspace features (Phase 2 onward) have not started.
+Status: Phase 1 (security foundations) is complete for the supported setup: local, single-user, browser mode via `npm run dev` on macOS. Items that only apply to remote hosting, the packaged desktop app, or other operating systems are marked N/A with the reason. See `docs/security-hardening.md` for boundaries, limitations, and evidence. Phase 2 onward has not started.
 
 ## Objective
 
-Make LearnHarness an all-in-one environment for React coding, frontend fundamentals, and system design interview preparation. Preserve its adaptive teaching, conversational practice, model connections, durable sessions, and knowledge graph. Implement security improvements before introducing learner code execution.
+Let the learner answer in code, not only by talking or choosing options, so coding skills are produced and ingrained rather than recognized. Code becomes a new answer type inside the sessions LearnHarness already has (teaching checks and practice problems), governed by the same method. LearnHarness stays a general learning tool; nothing here reshapes it around job interviews.
 
-This document records proposed work and acceptance criteria. It does not claim that vulnerabilities have been exploited or that the application has passed a security audit. The initial review was static: dependencies were not installed, tests were not run, and current dependency advisories were not checked.
+This document records proposed work and acceptance criteria. Mark an item complete only after its acceptance criteria have been verified, and record material limitations rather than checking an incomplete item.
+
+## Guardrails — the fundamentals every item must protect
+
+Each item below is tagged with the guardrails it touches. An item is not complete until it is shown not to weaken them. Any change to a guardrail itself needs the owner's explicit approval.
+
+- **G1 — The method.** Start from what the learner holds, move one reasoning step at a time, check after every step, and finish when the goal feels obviously true (`docs/teaching-methodology.md`). Teacher and prober prompts change only with owner approval.
+- **G2 — Measure before teaching.** The prober → teacher split and the practice lifecycle (`problem` → thinking → `conclude`) stay intact. A code answer is evidence the tutor judges, like a free-recall answer, not a separate grading system.
+- **G3 — Practice doctrine.** Practice demands production of held propositions from the inactive state (`src/agent/prompts/practice/10-doctrine.md`). Not an exam, not re-teaching, not long competition-shaped search problems. Code problems are short and decision-dense.
+- **G4 — Graph integrity.** The graph holds only true propositions and their chains. Understanding is inferred, never stored. No scores, attempts or code are written into the graph, and practice sessions keep skipping extraction unless the owner decides otherwise.
+- **G5 — One lifecycle.** One chat record, admission, streaming, cancellation, recovery and background-job system. No second engine or parallel agent framework. Old saved chats keep loading (golden fixtures).
+- **G6 — Provider neutrality.** Everything works with API keys, subscriptions, and Claude Code. Nothing depends on one provider's special features.
+- **G7 — Security boundaries.** The Phase 1 boundaries (folder grants, local sign-in, credential storage and redaction, sandboxed execution) stay in force. Learner code runs only behind the security gate below.
 
 ## Architectural commitments
 
-- [ ] Extend the existing application; do not create a separate interview app or parallel agent framework.
-- [ ] Keep domain contracts in `src/core/`, persistence in `src/store/`, orchestration in `src/server/`, agent behavior in `src/agent/`, transport in `app/api/`, and interface components in `components/`.
-- [ ] Reuse the existing practice `problem` → learner submission → `conclude` lifecycle.
-- [ ] Reuse chat admission, streaming, cancellation, recovery, model selection, and usage reporting.
-- [ ] Keep credentials and privileged operations outside learner code and preview frames.
-- [ ] Keep attempt performance separate from the knowledge graph's propositions and reasoning chains.
-- [ ] Preserve existing teaching sessions, ordinary conversational practice, and old saved records.
-- [ ] Read applicable repository instructions and installed framework documentation before implementation. Resolve design choices and approve an implementation plan for each milestone.
+- [ ] Extend the existing application; do not create a separate app or parallel agent framework. *(G5)*
+- [ ] Keep domain contracts in `src/core/`, persistence in `src/store/`, orchestration in `src/server/`, agent behavior in `src/agent/`, transport in `app/api/`, and interface components in `components/`. *(G5)*
+- [ ] Code answers plug into existing question tools and the practice lifecycle; they do not replace multiple choice, free recall, or conversation. *(G1, G2)*
+- [ ] Keep credentials and privileged operations outside learner code and preview frames. *(G7)*
+- [ ] Keep answers and attempt evidence out of the knowledge graph's propositions and chains. *(G4)*
+- [ ] Read applicable repository instructions and installed framework documentation before implementation. Resolve design choices and approve an implementation plan for each milestone. *(all)*
 
 ## Phase 1 — Security foundations
 
@@ -95,170 +105,122 @@ Acceptance: generated content cannot access app credentials or privileged APIs, 
 
 Security gate: approve the execution threat model and resolve relevant isolation/access-control failures before enabling learner-authored code. Still open: this gate applies to the Phase 2 learner-code runtime, not to demos.
 
-## Phase 2 — First complete React practice loop
+## Phase 2 — Code as an answer type
 
-### 6. Extend practice contracts — medium difficulty
+### 6. Code answer contract — medium difficulty
 
-Integration: `src/core/contracts/chat.ts`, `src/core/input-events.ts`, `src/agent/tools/practice.ts`.
+Integration: `src/core/contracts/chat.ts`, `src/core/input-events.ts`, `src/core/question-core.ts`, `src/agent/tools/practice.ts`, the teacher's question tools.
 
-- [ ] Define coding exercise metadata: instructions, starter files, supported dependencies, test specification, and review criteria.
-- [ ] Define workspace, draft, immutable submission, and execution-result contracts.
-- [ ] Link each workspace and submission to its chat and problem occurrence.
-- [ ] Keep hidden solutions and private evaluation material outside learner-visible starter files.
-- [ ] Validate filenames, file sizes, dependency declarations, and incoming payloads.
-- [ ] Preserve existing conversational problem shapes through backward-compatible optional fields or explicit versioning.
+- [x] Decide how code is requested: a dedicated code-question tool for teaching and a code option on `problem` for practice (see Decisions). *(G1, G2)*
+- [x] Define the request: instructions, language, starter files, optional run mode (none / preview / checks), and a reference solution committed at pose time and revealed the same way practice solutions are. *(G2)* `src/core/code-answer.ts`; `run` is on/off, and checks are Phase 3.
+- [x] Define the answer event: an immutable snapshot of the submitted files plus any run evidence, linked to its chat and question occurrence. *(G2, G5)* Teaching: the question's tool result. Practice: a `Your code` marker. Run evidence is flagged stale when the files changed after the run.
+- [x] The agent judges the code the way it judges free recall, with no new deterministic grader. *(G2)*
+- [x] Validate file names, sizes, language and incoming payloads. *(G7)* Checked in the tools, the answer/code inputs (files must match the question's), and the compile route; run evidence is re-bounded on the server.
+- [x] Existing answer types and saved chats are unchanged; golden fixtures still pass. *(G5)*
 
-Acceptance: existing practice sessions still load and run; coding problems can carry structured workspace data.
+Acceptance: a teaching check and a practice problem can each request and receive code; existing sessions load and run unchanged.
 
-### 7. Add the practice workspace interface — medium difficulty
+### 7. Editor in the answer dock — medium difficulty
 
-Integration: `components/chat.tsx`, `components/practice-dock.tsx`, existing session state.
+Integration: `components/practice-dock.tsx`, the question dock in `components/chat.tsx`, existing session state.
 
-- [ ] Add resizable problem/chat, editor, and preview/results panels within practice sessions.
-- [ ] Preserve hints, thinking submissions, problem dismissal, and next-problem behavior.
-- [ ] Define compact-window layout and accessible keyboard navigation.
-- [ ] Scope editor shortcuts so Enter and other typing keys do not accidentally submit the practice answer.
-- [ ] Show saving, running, failed, and disconnected states clearly.
+- [x] Choose an editor after checking licensing, bundle size, accessibility, and framework compatibility (CodeMirror 6 is the leading candidate). *(G5)* CodeMirror 6 (MIT); loaded with a normal import, because a lazily loaded chunk caused a reload loop in dev.
+- [x] Show the editor only when a question asks for code; other answer types are untouched. *(G1, G2)*
+- [x] Support JavaScript, TypeScript/JSX, HTML, and CSS; one file first, file tabs when a question needs several. *(G1)* Also Vue 3 JSX/TSX (owner).
+- [x] Scope keys so Enter types a newline and only an explicit shortcut or button submits. *(G2)* ⌘/Ctrl+Enter or the button; verified in the browser.
+- [x] Keep drafts across refresh and restart until submitted; never lose unfinished code. *(G5)* Server drafts; cleared only after the answer is durably saved (a refused submit keeps the code; verified in the browser).
+- [ ] Keep the tutor and conversation reachable while editing; define compact-window layout and keyboard navigation. *(G1)* Partly done: the transcript stays scrollable above the dock; Tab indents and Escape leaves the editor. A compact-window layout has not been designed or checked.
 
-Acceptance: the learner can complete a coding exercise without switching applications or losing access to the tutor.
+Acceptance: the learner can write, edit, and submit code in the dock without leaving LearnHarness or losing work.
 
-### 8. Embed editor and file management — medium difficulty
+### 8. Running code safely — high difficulty
 
-- [ ] Select an established editor component after checking licensing, bundle impact, accessibility, and framework compatibility.
-- [ ] Support React/TypeScript, JavaScript, HTML, and CSS editing.
-- [ ] Add file tabs, file selection, and the agreed file creation/rename/delete behavior.
-- [ ] Provide diagnostics supported by the chosen editor/runtime; distinguish them from executed test failures.
-- [ ] Keep starter and solution files distinct and protect unfinished drafts from accidental resets.
+Integration: the Phase 1 demo sandbox (`src/core/demo-security.ts`, `components/artifacts/demo-card.tsx`, `proxy.ts`).
 
-Acceptance: editing multiple files is stable, keyboard-accessible, and recoverable.
+- [ ] Write the execution threat model and pass the security gate before any learner code runs. *(G7)* Threat model written (`docs/security-hardening.md`) and hostile tests pass; the gate needs owner sign-off.
+- [x] Reuse the demo sandbox: opaque origin, demo CSP, the app's `frame-src 'none'`, no network. *(G7)*
+- [x] Compile JSX/TypeScript and resolve imports between the question's files. *(G7)* Per owner decision: on the local server with esbuild, not in the browser; only the question's files and an allowlist are importable.
+- [x] Serve React and any other supported libraries from the app itself, because the network is blocked. *(G7)* React, React DOM and Vue are bundled from the app's node_modules (development builds, for their warnings).
+- [x] Add a loop guard that stops runaway loops, plus a Stop control; document what a reload recovers. *(G7)*
+- [x] Capture console output and compile/runtime errors through the bridge, bounded and sanitized, tied to the exact files that produced them. *(G2, G7)*
+- [x] Running is optional per question; when the question's run mode is none, nothing executes. *(G1)*
 
-### 9. Add project compilation and live preview — high difficulty
+Acceptance: a learner can run a React component and see its output and errors in the dock; hostile fixtures (network, navigation, infinite loop) fail safely.
 
-Integration: hardened browser/execution infrastructure and existing artifact presentation patterns.
+### 9. The tutor works with the code — medium–high difficulty
 
-- [ ] Select a frontend runtime that satisfies Phase 1 isolation requirements.
-- [ ] Start with controlled templates and supported dependencies; arbitrary shell commands and backend servers are outside the first milestone.
-- [ ] Compile JSX/TypeScript and resolve imports for multi-file exercises.
-- [ ] Refresh preview after changes with clear compile/runtime status.
-- [ ] Isolate previews from application storage and privileged APIs.
-- [ ] Stop or restart failed/running previews without affecting chat state.
-- [ ] Verify actual runtime behavior in packaged Electron and browser mode.
+Integration: teacher and practice prompts, `src/agent/tools/practice.ts`, conclusion projections.
 
-Acceptance: a learner can edit a React component and interact with its rendered output inside LearnHarness.
+- [x] The submitted snapshot and run evidence reach the agent as the answer, not a stale draft. *(G2, G5)*
+- [ ] Teaching: a code check follows the method; on a mistake the teacher repairs the exact step before continuing and never builds on code the learner does not yet hold. Prompt changes need owner approval. *(G1)* Partly observed (live, gpt-6.1-sol): the prober settled the goal, then asked for code with `probe_code` and graded a buggy answer precisely ("increment works; Reset needs setCount(0)"), then moved its probe up a level. A teach-phase `code` check after `plan_init` has not been observed yet.
+- [ ] Practice: code problems are short, decision-dense uses of held propositions, not long search problems; corrections are minimal nudges. *(G3)* Observed once (live): the practitioner posed a short `.map()` code problem with a JavaScript starter, judged the submitted code and run as solved, revealed its solution, and paused for Next problem. A miss-and-nudge path has not been observed yet.
+- [ ] Treat code comments, console output, and imported content as untrusted data, never instructions. *(G7)* In the prompt; a prompt cannot guarantee it. Not yet observed with a real model.
+- [x] Code reaches every provider as text; enforce context limits without silently dropping files. *(G6)* Text only; files are capped at 8 × 50,000 characters and never silently trimmed.
+- [x] Hints and solution reveal keep their existing behavior. *(G2)*
 
-### 10. Capture runtime evidence — medium difficulty
+Acceptance: the tutor's feedback is about the code actually submitted, and lessons still move one checked step at a time.
 
-- [ ] Extend the demo bridge approach for console messages and compilation/runtime errors.
-- [ ] Associate output with the specific workspace revision and run.
-- [ ] Bound and sanitize output to prevent flooding and rendering injection.
-- [ ] Distinguish user code logs from authoritative execution status.
+## Phase 3 — Checks that run
 
-Acceptance: errors are visible and attributable to the code revision that produced them.
+### 10. Optional automatic checks — high difficulty
 
-### 11. Save drafts and submit code — medium–high difficulty
+- [ ] The tutor can attach a few behavior checks to a code question when they help. *(G1, G2)*
+- [ ] Before posing, the checks must pass against the committed reference solution; checks that fail it are not used. *(G2)*
+- [ ] Run checks in the hardened headless checker, where the result collector lives outside the page and learner code cannot fake results. *(G7)*
+- [ ] Show passed, failed, timed-out, and infrastructure-error results distinctly; an infrastructure error never counts as passing. *(G2)*
+- [ ] Results are evidence for the tutor's judgment, not a grade, and are never written to the graph. *(G2, G4)*
 
-Integration: `src/core/ports.ts`, `src/store/`, `src/server/stores.ts`, chat submission/admission flow.
+Acceptance: check results come from real execution against the submitted snapshot, and the tutor's feedback distinguishes them from its own judgment.
 
-- [ ] Persist drafts through storage adapters and expose narrow server/API operations.
-- [ ] Autosave with visible failure handling; restore files after restart.
-- [ ] Create an immutable code snapshot when the learner submits.
-- [ ] Attach the explanation and available run evidence to that snapshot.
-- [ ] Prevent stale runs or later edits from changing what a submission means.
-- [ ] Reuse existing turn admission and recovery rather than adding a second chat engine.
-- [ ] Define workspace cleanup when sessions are deleted.
+## Phase 4 — Later, pending design
 
-Acceptance: edit → preview → submit → feedback → close → reopen preserves the exact attempt and current draft.
+### 11. System design as an answer type — on hold
 
-## Phase 3 — Reliable interview evaluation
+On hold by owner decision (2026-11-03). No design work until it is picked up again.
 
-### 12. Add executable tests — high difficulty
+- [ ] Approve a design that fits the method before any implementation (see Decisions). *(G1–G5)*
 
-- [ ] Support JavaScript behavior tests and React interaction tests in the isolated runtime.
-- [ ] Separate learner code from the trusted result collector as far as the runtime permits.
-- [ ] Show passed, failed, timed-out, and infrastructure-error results distinctly.
-- [ ] Tie results to a code snapshot and test version.
-- [ ] Decide whether tests are visible or hidden; document that client-delivered tests cannot be strongly secret.
-- [ ] Prevent user console output from impersonating test results.
+### 12. Attempt history — optional
 
-Acceptance: feedback uses actual test execution; infrastructure failures are never represented as passing solutions.
+- [ ] Store attempts, outcomes, hints used, and evidence separately from the graph's propositions. *(G4)*
+- [ ] Link attempts to graph propositions only through existing `conclude` targets; never store mastery scores. *(G4)*
+- [ ] Support review and deletion of history. *(G5)*
 
-### 13. Extend the existing practice agent — medium–high difficulty
+Acceptance: later sessions can use prior evidence without treating an AI judgment as a skill rating.
 
-Integration: `src/agent/tools/practice.ts`, practice prompts, existing problem/conclusion projections.
+## Completion checklist
 
-- [ ] Provide submitted code and verified results to the existing practitioner.
-- [ ] Evaluate correctness, edge cases, accessibility, clarity, and relevant tradeoffs.
-- [ ] Separate test-backed observations from model judgment.
-- [ ] Treat code comments, logs, and imported content as untrusted evidence, not instructions.
-- [ ] Preserve hint and solution-reveal behavior and explicit next-problem progression.
-- [ ] Enforce context limits without silently omitting important files or evidence.
+- [ ] Run focused security, contract, persistence, runtime, and agent-flow tests. *(G5, G7)*
+- [ ] Test restart, refresh, cancellation, failed saves, failed model calls, and interrupted execution. *(G5)*
+- [ ] Test old chats and ordinary teaching and practice sessions for regressions. *(G1, G2, G5)*
+- [ ] Run a teaching session and a practice session end to end with code answers, and confirm the method still holds step by step. *(G1, G2, G3)*
+- [ ] Confirm nothing new was written to the graph. *(G4)*
+- [ ] Run with an API key, a subscription, and Claude Code. *(G6)*
+- [ ] Complete type checking, linting, production build, and a live `npm run dev` smoke test. *(G5, G7)*
+- [ ] Document setup, supported languages and libraries, and known limitations. *(all)*
 
-Acceptance: the interviewer reviews the submitted implementation, not a stale draft or inferred execution outcome.
-
-### 14. Add interview controls and exercise content — medium–high difficulty
-
-- [ ] Define learning versus interview behavior using existing practice configuration.
-- [ ] Add optional timing, hints on request, follow-up questions, and solution reveal controls.
-- [ ] Create a small verified set of React, JavaScript, CSS, accessibility, and debugging exercises.
-- [ ] Include requirements, starter files, reference implementation, tests, and review criteria for each coding exercise.
-- [ ] Validate exercise tests against both correct solutions and representative incorrect solutions.
-- [ ] Let generated exercises use the same contracts; clearly distinguish unverified generated tests from curated tests.
-
-Acceptance: at least one exercise in each initial supported category works through the same end-to-end practice system.
-
-## Phase 4 — System design and continued learning
-
-### 15. Add a system design workspace — medium–high difficulty
-
-- [ ] Attach an editable diagram canvas and structured design notes to a practice problem.
-- [ ] Support requirements, component responsibilities, data flow, API sketches, and tradeoffs.
-- [ ] Save diagram and notes revisions through the same workspace persistence patterns.
-- [ ] Submit a stable design snapshot that the existing practitioner can inspect.
-- [ ] Support frontend architecture exercises first and explicitly scope broader distributed-system exercises.
-- [ ] Review requirements coverage and reasoning rather than claiming one uniquely correct architecture.
-
-Acceptance: the learner can diagram, explain, submit, and discuss a design entirely within the existing practice session.
-
-### 16. Connect attempts to future practice — medium–high difficulty
-
-- [ ] Store attempts, outcomes, hints used, and review evidence separately from knowledge propositions.
-- [ ] Link attempt history to relevant existing graph concepts where supported.
-- [ ] Use history and graph context to propose targeted teaching and follow-up exercises.
-- [ ] Define any change to practice-to-graph extraction explicitly; current practice should not silently start writing performance scores into the graph.
-- [ ] Support review and deletion of attempt history.
-
-Acceptance: later sessions can use prior evidence without treating an AI judgment as a certified skill rating.
-
-## Completion and release checklist
-
-- [ ] Run focused security, contract, persistence, runtime, and agent-flow tests.
-- [ ] Test restart, refresh, cancellation, failed saves, failed model calls, and interrupted execution.
-- [ ] Test old chats and ordinary teaching/practice for regressions.
-- [ ] Complete type checking, linting, production build, and platform smoke checks.
-- [ ] Verify keyboard access, panel resizing, and editor performance on realistic exercises.
-- [ ] Document setup, runtime requirements, dependency support, file permissions, and known limitations.
-- [ ] Demonstrate the complete React practice loop and system design loop against acceptance criteria.
-
-## Decisions to resolve before the relevant implementation stage
+## Decisions to resolve before the relevant stage
 
 - [x] Exact folder-grant UX and sensitive-path policy.
 - [x] Browser authentication/bootstrap and supported remote-access scope. Local only; no remote access.
 - [x] Secure credential storage strategy per supported platform. macOS Keychain only; other platforms N/A.
-- [ ] Runtime isolation model and network/dependency policy.
-- [ ] Editor/runtime libraries and supported initial templates.
-- [ ] Test execution authority and visible/hidden test behavior.
-- [ ] Workspace data versioning, retention, and reset behavior.
-- [ ] Interview controls, review rubric, and initial exercise categories.
-- [ ] Diagram editor and initial system design scope.
+- [x] Interview mode, timers, and an interview exercise library: dropped (owner, 2026-11-03).
+- [x] How code is requested (owner, 2026-11-03): teaching gets a dedicated code-question tool that works like `explain` and is available whether the session uses multiple-choice or free-recall checks; practice gets a code option on `problem`.
+- [x] When the tutor asks for code instead of words or options: approved wording added to the shared question-tools, prober, teacher question-principles, and practice base prompts (owner, 2026-11-03). The prober can ask for code too (`probe_code`); the teaching tool is `code`.
+- [x] Which teaching phases may ask for code: both teaching checks and practice problems from the start (owner, 2026-11-03).
+- [x] Editor library: CodeMirror 6. Languages: React (JSX/TSX), Vue 3 (JSX/TSX), JavaScript/TypeScript, HTML + CSS. Files are set by the tutor; the learner edits contents only (owner, 2026-11-03).
+- [x] Runtime: the local server bundles with esbuild, with only the submitted files plus react, react-dom and vue importable; a loop guard stops a loop that runs over 1 second; execution happens in the Phase 1 sandbox (owner, 2026-11-03).
+- [x] Teacher and practice prompt changes for code answers: approved (see above). The tutor receives files plus run status, console output and errors as text only; no screenshots (owner, 2026-11-03).
+- [ ] When checks are attached and whether the learner sees them. *(before item 10)*
+- [ ] System design: answer format, how designs are judged, and initial scope. *(before item 11)*
+- [x] Draft retention and reset behavior: drafts autosave on the server per chat, are restored on reload, are cleared on submit or dismissal, are deleted with the chat, and have a confirmed Reset to starter files (owner, 2026-11-03).
 
 ## Milestone order
 
-1. Security foundations and verification.
-2. One complete saved React exercise with editor, preview, and tutor review.
-3. Executable tests, interview controls, and verified exercise library.
-4. System design workspace and history-informed learning.
-
-Update this checklist as implementation decisions are approved. Mark items complete only after their acceptance criteria have been verified; record material limitations rather than checking an incomplete item.
+1. Security foundations and verification (done).
+2. Code answers in teaching checks and practice, with the editor, safe running, and tutor review.
+3. Optional automatic checks.
+4. System design and attempt history, after their designs are approved.
 
 ## Security validation snapshot
 
@@ -281,3 +243,29 @@ Update this checklist as implementation decisions are approved. Mark items compl
 - Type checking passed. Lint: 0 errors, 1 pre-existing warning. Production build passed in place.
 - Live `npm run dev` smoke test (throwaway data): loopback-only listener; 403 for no cookie, wrong secret, other-site Origin, and wrong Host; frame-src header present; the broad-folder warning and Save anyway verified in the browser.
 - Real-browser hostile demo test: all localhost requests were blocked; a looping demo timed out cleanly.
+
+## Phase 2 build snapshot (2026-11-03)
+
+- Implemented:
+  - `code` (teaching) and `probe_code` (probing) question tools, available under either quiz setting
+  - a code option on practice `problem`
+  - CodeMirror workspace with file tabs, Run/Stop, preview and console, server-saved drafts, and a confirmed reset
+  - an esbuild compile route with an import allowlist and loop guards
+  - answered-card and practice-card views
+  - the four approved prompt passages
+- Tests: 3,223 of 3,223 passed with isolated data. New: `tests/code-answers.test.ts` (contract, record seams, tools, compiler escapes, loop guard, run document, drafts, and hostile code in real Chrome) and `tests/code-answers-render.test.tsx`.
+- Type checking passed. Lint: 0 errors, 1 pre-existing warning. Production build passed; under `npm start` the compile route served React and Vue and refused a request without the session cookie.
+- Browser check with throwaway data, no model:
+  - React rendered and was interactive ("Clicked 2 times").
+  - Vue rendered.
+  - JavaScript printed its console output.
+  - HTML inlined its CSS and JS.
+  - TypeScript practice ran, and Submit code sent a `code` input.
+  - Drafts survived reload and a refused submit.
+  - The answered card showed the files, run status and solution.
+- Found and fixed during the live check:
+  - The package lookup failed inside Next's bundled route.
+  - The lazily loaded editor caused a dev reload loop.
+  - Drafts were cleared before the server accepted the answer.
+- Live model check (gpt-6.1-sol, your real data): probing asked for code and graded a buggy answer precisely; practice posed a short code problem, concluded it as solved and paused correctly. Two sessions from this check are in your session list.
+- Not yet done: a teach-phase `code` check after the plan; a practice miss-and-nudge; a compact-window layout; your sign-off on the security gate.

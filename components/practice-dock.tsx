@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import { ChevronRightIcon } from "lucide-react";
 import { ToolContentResponse } from "@/components/ai-elements/message";
 import { Button } from "@/components/ui/button";
@@ -8,6 +8,8 @@ import { joinDictation, useDictationTarget } from "@/components/dictation";
 import { useEnterSubmits } from "@/components/enter-submits";
 import { PathInput } from "@/components/path-input";
 import { cn } from "@/lib/utils";
+import { isCodeLanguage, starterFiles, type CodeFile, type CodeLanguage, type CodeRunResult } from "@/src/core";
+import { CodeWorkspace, type CodeWorkspaceState } from "@/components/code/code-workspace";
 
 /**
  * The practice dock (practice sessions, owner design 2026-10-04): an
@@ -34,7 +36,11 @@ export interface PracticeDockProps {
 	problemCallId: string;
 	/** The pose's arguments — only the statement is the learner's (the
 	 *  mode badge would edge toward announcing the target; dropped). */
-	input: { statement: string };
+	input: { statement: string; code?: unknown };
+	/** The chat — code problems autosave drafts per chat (Phase 2). */
+	chatId?: string;
+	/** Code problems (Phase 2): files + last run + optional thinking. */
+	onSubmitCode?: (code: { files: CodeFile[]; run?: CodeRunResult; text: string }) => void;
 	/** Collapse state, owned by the DockOverlay. */
 	expanded: boolean;
 	onExpand: () => void;
@@ -49,7 +55,17 @@ export interface PracticeDockProps {
 	compactionRunning?: boolean;
 }
 
-export function PracticeDock({ problemCallId, input, expanded, onExpand, onSubmit, onEscape, compactionRunning = false }: PracticeDockProps) {
+/** The problem's code option, when it is a well-formed code problem. */
+function codeRequestOf(input: { code?: unknown }): { language: CodeLanguage; files: CodeFile[]; run: boolean } | null {
+	const code = input.code as { language?: unknown; files?: unknown; run?: unknown } | undefined;
+	if (!code || !isCodeLanguage(code.language)) return null;
+	const files = Array.isArray(code.files) ? (code.files as CodeFile[]).filter((f) => f && typeof f.name === "string" && typeof f.content === "string") : undefined;
+	return { language: code.language, files: starterFiles(code.language, files), run: code.run === true };
+}
+
+export function PracticeDock({ problemCallId, input, expanded, onExpand, onSubmit, onEscape, compactionRunning = false, chatId, onSubmitCode }: PracticeDockProps) {
+	const codeRequest = useMemo(() => codeRequestOf(input), [input]);
+	const workspace = useRef<CodeWorkspaceState | null>(null);
 	const [thinking, setThinking] = useState("");
 	// Ref MIRRORS the field ("nothing gets lost", the question-dock
 	// discipline): a submit resuming after `await finishDictation()` reads
@@ -77,11 +93,24 @@ export function PracticeDock({ problemCallId, input, expanded, onExpand, onSubmi
 		onSubmit(text);
 	};
 
+	// A code submission: the files + last run, with any thinking alongside.
+	// The editor keeps its contents so the learner can revise and resubmit.
+	const submitCode = () => {
+		if (compactionRunning || !codeRequest || !onSubmitCode || !workspace.current) return;
+		const text = thinkingRef.current.trim();
+		thinkingRef.current = "";
+		setThinking("");
+		const { files, run } = workspace.current;
+		onSubmitCode({ files, ...(run ? { run } : {}), text });
+	};
+
 	/* ENTER SUBMITS FROM ANYWHERE (owner round 6, 2026-10-05): dictation
 	 * means the field is often never focused — the window-level Enter
 	 * (typing surfaces and buttons excluded) submits the trace. Mounted
-	 * while the dock is — collapsed bar included (the trace survives). */
-	useEnterSubmits(submit);
+	 * while the dock is — collapsed bar included (the trace survives).
+	 * Code problems opt out: Enter belongs to the editor and the Run
+	 * button, and only an explicit chord or button submits. */
+	useEnterSubmits(() => { if (!codeRequest) submit(); });
 
 	/* ── the collapsed bar ── */
 	if (!expanded) {
@@ -113,6 +142,20 @@ export function PracticeDock({ problemCallId, input, expanded, onExpand, onSubmi
 				</div>
 			</div>
 
+			{codeRequest && (
+				<div className="px-1.5 pb-1">
+					<CodeWorkspace
+						chatId={chatId}
+						draftKey={problemCallId}
+						language={codeRequest.language}
+						starter={codeRequest.files}
+						allowRun={codeRequest.run}
+						onChange={(state) => { workspace.current = state; }}
+						onSubmitShortcut={submitCode}
+					/>
+				</div>
+			)}
+
 			{/* The learner's half: Enter SENDS (owner round 2, 2026-10-05);
 			    Shift+Enter makes a newline — less to decide about. */}
 			<div
@@ -139,12 +182,20 @@ export function PracticeDock({ problemCallId, input, expanded, onExpand, onSubmi
 						}
 						// Enter SENDS — the single lane (owner round 2, 2026-10-05);
 						// Shift+Enter is the newline, ⌘/Ctrl+Enter the chord too.
+						// Code problems: Enter is a newline; ⌘/Ctrl+Enter submits code.
+						if (codeRequest) {
+							if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+								e.preventDefault();
+								submitCode();
+							}
+							return;
+						}
 						if (e.key === "Enter" && (!e.shiftKey || e.metaKey || e.ctrlKey)) {
 							e.preventDefault();
 							submit();
 						}
 					}}
-					placeholder="Work here, think out loud."
+					placeholder={codeRequest ? "Think out loud, ask for a nudge, or explain your code." : "Work here, think out loud."}
 					className={cn(
 						"field-sizing-content lh-input max-h-64 min-h-16 w-full resize-none bg-transparent px-2.5 pb-2 outline-none placeholder:text-muted-foreground",
 					)}
@@ -155,17 +206,31 @@ export function PracticeDock({ problemCallId, input, expanded, onExpand, onSubmi
 				    field 10 − p-1 (4) = button 6. */}
 				<div className="flex items-center justify-between gap-2 p-1">
 					<span aria-hidden className="pl-1.5 text-xs text-muted-foreground">
-						{compactionRunning ? "compacting session…" : "↵ submits · ⇧↵ newline"}
+						{compactionRunning ? "compacting session…" : codeRequest ? "⌘↵ submits code · ↵ newline" : "↵ submits · ⇧↵ newline"}
 					</span>
-					<Button
-						type="button"
-						data-testid="practice-send"
-						disabled={thinking.trim().length === 0 || compactionRunning}
-						onClick={() => submit()}
-						className="ml-auto h-9 rounded-[6px] px-3.5 text-sm font-medium"
-					>
-						Submit thinking
-					</Button>
+					<div className="ml-auto flex items-center gap-1.5">
+						<Button
+							type="button"
+							variant={codeRequest ? "ghost" : "default"}
+							data-testid="practice-send"
+							disabled={thinking.trim().length === 0 || compactionRunning}
+							onClick={() => submit()}
+							className="h-9 rounded-[6px] px-3.5 text-sm font-medium"
+						>
+							Submit thinking
+						</Button>
+						{codeRequest && (
+							<Button
+								type="button"
+								data-testid="practice-submit-code"
+								disabled={compactionRunning}
+								onClick={() => submitCode()}
+								className="h-9 rounded-[6px] px-3.5 text-sm font-medium"
+							>
+								Submit code
+							</Button>
+						)}
+					</div>
 				</div>
 			</div>
 		</div>

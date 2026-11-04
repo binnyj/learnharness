@@ -157,6 +157,7 @@ export function phaseTimeline(messages: readonly PhaseMessage[]): Phase3[] {
 // ─── the native fold (Wave D: record-side phase over LhMessage[]) ───────────
 
 import { probeDoneResultIds, type LhMessage } from "./native-messages.ts";
+import { TEACH_GRADED_TOOLS } from "./question-core.ts";
 
 /** The phase at `upToIndex` (inclusive; default: the last message) of a
  *  NATIVE record. probe→plan advances at the probe_done call's clean
@@ -178,7 +179,7 @@ export function phaseAt3Lh(messages: readonly LhMessage[], upToIndex?: number): 
 				for (const block of content) {
 					if (
 						block.type === "toolCall" &&
-						(block.name === "quiz" || block.name === "explain") &&
+						(TEACH_GRADED_TOOLS as readonly string[]).includes(block.name ?? "") &&
 						taggedNodeId(block.arguments)
 					) {
 						phase = "teach";

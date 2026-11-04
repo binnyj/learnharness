@@ -19,6 +19,7 @@
 
 import { Type, type Static } from "typebox";
 import { stripModelValueDebris } from "./value-debris.ts";
+import { codeFilesProblems, codeRequestProperties, formatCodeForModel, type CodeFile, type CodeLanguage, type CodeRunResult } from "./code-answer.ts";
 
 // ─── shared types ───────────────────────────────────────────────────────────
 
@@ -230,7 +231,7 @@ export function normalizeQuizType(raw: unknown): QuizQuestionType | undefined {
  *  truth. Records that predate the `type` field carry none — they render
  *  as checks, the standing default. */
 export function questionNeedsReveal(tool: string, rawInput: unknown, phase: string): boolean {
-	if ((tool !== "quiz" && tool !== "explain") || phase !== "teach") return false;
+	if (!(TEACH_GRADED_TOOLS as readonly string[]).includes(tool) || phase !== "teach") return false;
 	return normalizeQuizType((rawInput as { type?: unknown } | null)?.type) !== "predict";
 }
 
@@ -361,6 +362,63 @@ export function explainInputProblems(input: { correctAnswer: string }): string[]
  *  whichever is armed. */
 export const QUIZ_TOOL_NAMES = ["quiz", "explain"] as const;
 
+/** Every TEACH-phase graded tool that carries `type` + `nodeId` (the plan
+ *  position fold, the probe→teach phase seam, and the reveal law all read
+ *  this one list). `code` joined 2026-11-03 (Phase 2) — it is available
+ *  under either quizzing mechanic, so it is not part of QUIZ_TOOL_NAMES. */
+export const TEACH_GRADED_TOOLS = ["quiz", "explain", "code"] as const;
+
+// ─── the code tool (code answers, owner 2026-11-03) ────────────────────────
+//
+// Explain's mechanics with an editor instead of a text box: the model
+// commits the full solution BEFORE posing; the learner edits the tutor's
+// files (contents only) and may run them in the sandbox; the model grades
+// the submitted files + run evidence against its commitment.
+
+export const codeInputBase = Type.Object({
+	question: Type.String({
+		description:
+			"The single coding demand, as the learner sees it (markdown). ONE question per turn: ask, then end your turn.",
+	}),
+	...codeRequestProperties,
+	solution: Type.String({
+		description:
+			"REQUIRED. Your full solution code plus the reasoning — COMMITTED before the learner ever sees the question. " +
+			"Grade his code against it strictly, but by behavior and the step: different code can be right. Never revise " +
+			"it after seeing his code, and never pass broken code to be kind. It is shown to him on submit.",
+	}),
+	details: Type.Optional(
+		Type.String({ description: "Optional extra context or instructions shown under the question." }),
+	),
+});
+
+/** The TEACH-side code object: the cycle role + plan position, then the base. */
+export const codeInputObject = Type.Object({
+	type: predictCheckType,
+	nodeId: Type.String({
+		description:
+			"REQUIRED plan-tree node id this question is about — must EXACTLY match one of this session's plan_init node " +
+			"slugs (validated at call time). Same position semantics as the other teaching questions.",
+	}),
+	...codeInputBase.properties,
+});
+
+/** DISPLAY parse for persisted code calls: base + optional lenient `type`. */
+export const codeDisplayInputSchema = Type.Object({
+	...codeInputBase.properties,
+	type: Type.Optional(Type.String()),
+});
+
+/** The code authoring contract: a commitment and valid files. */
+export function codeInputProblems(input: { solution: string; language: CodeLanguage; files?: CodeFile[] }): string[] {
+	const problems: string[] = [];
+	if (input.solution.trim().length === 0) {
+		problems.push("solution is required — commit to your full solution code BEFORE posing the question.");
+	}
+	problems.push(...codeFilesProblems(input.language, input.files));
+	return problems;
+}
+
 /** The TEACHER's quiz declaration (base + the position field). */
 export const quizInputSchema = quizInputObject;
 
@@ -395,6 +453,7 @@ export type QuizToolInput = Static<typeof quizInputObject>;
 export type AskToolInput = Static<typeof askInputSchema>;
 export type ExplainToolInput = Static<typeof explainInputObject>;
 export type ProbeExplainToolInput = Static<typeof explainInputBase>;
+export type CodeToolInput = Static<typeof codeInputBase>;
 
 
 /** A real selected answer, in the order the options were displayed. */
@@ -404,7 +463,7 @@ export interface OptionAnswer {
 	index: number; // 1-based display index
 }
 
-export type QuestionKind = "quiz" | "ask" | "explain";
+export type QuestionKind = "quiz" | "ask" | "explain" | "code";
 export type SelectMode = "single-select" | "multi-select";
 export type QuestionMode = SelectMode | "text";
 
@@ -423,7 +482,7 @@ export interface QuestionData {
 	options: QuizOption[]; // display order (post-shuffle)
 	// quiz only. NEVER send to the client before answering:
 	correctIndices?: number[];
-	// explain only. NEVER send to the client before answering:
+	// explain/code only. NEVER send to the client before answering:
 	committedAnswer?: string;
 	// quiz only (the MC "why"). NEVER send to the client before answering:
 	explanation?: string;
@@ -465,7 +524,12 @@ export interface QuestionAnswerData {
 	confidence?: number; // quiz only: the learner's stated probability (0-100, raw) that his selected answer is correct — never sent on "I don't know" (owner, 2026-10-01)
 	correct?: boolean; // quiz only
 	correctIndices?: number[]; // quiz only (rendering)
-	committed?: string; // explain only (rendering): the model's committed answer
+	committed?: string; // explain/code (rendering): the model's committed answer
+	/** code only: the language, the submitted files (exactly the question's
+	 *  files, contents edited), and the last run's bounded evidence. */
+	language?: CodeLanguage;
+	files?: CodeFile[];
+	run?: CodeRunResult;
 	explanation?: string; // quiz only (rendering)
 	dismissed?: boolean;
 	answeredAt: string;
@@ -490,6 +554,9 @@ export interface AnswerRequest {
 	thinking?: string; // the reasoning-on-the-question channel (was `note`)
 	readingThinking?: string; // the thinking-while-reading channel (check answers)
 	confidence?: number; // quiz only: 0-100 raw probability — 50 is a real coin flip, always sent (owner, 2026-10-01)
+	files?: CodeFile[]; // code only: the submitted files
+	run?: CodeRunResult; // code only: the last run (bounded by the dock)
+	language?: CodeLanguage; // code only
 }
 
 /** The confidence slider's snap stops (owner, 2026-10-01): raw probability
@@ -747,6 +814,13 @@ export function buildAnswer(qd: QuestionData, req: AnswerRequest, tool?: string)
 		// commitment. The commitment snapshots for the reveal + rendering.
 		base.committed = qd.committedAnswer;
 	}
+	if (qd.kind === "code") {
+		// Same law as explain: the model grades against its commitment.
+		base.committed = qd.committedAnswer;
+		if (req.language) base.language = req.language;
+		if (!base.dontKnow && req.files) base.files = req.files.map((f) => ({ name: f.name, content: f.content }));
+		if (!base.dontKnow && req.run) base.run = req.run;
+	}
 	return base;
 }
 
@@ -786,6 +860,8 @@ export function compactAnswerForModel(ad: QuestionAnswerData): Record<string, un
 		out.answers = ad.answers.map((a) => ({ index: a.index, label: a.label }));
 	if (ad.text) out.text = ad.text;
 	if (ad.other) out.other = ad.other;
+	// Code answers: the files and the run evidence, as text (G6).
+	if (ad.kind === "code" && Array.isArray(ad.files) && ad.files.length > 0) out.code = formatCodeForModel(ad.files, ad.run);
 	// The verdict + stated confidence are the learner's PERFORMANCE — new
 	// information the model needs for its next move. (dontKnow implies
 	// incorrect and carries no confidence: both stay implicit.)

@@ -152,6 +152,8 @@ function finishChatRecordDeletion(chatId: string): number {
 	if (stores.chatStore.deleteChat(chatId)) {
 		discardChatDeliveries(chatId);
 		clearTurnFailure(chatId);
+		// Unsubmitted code drafts go with their chat (Phase 2).
+		try { stores.codeDraftStore.deleteChatDrafts(chatId); } catch { /* best-effort; never blocks deletion */ }
 	}
 	return jobsRemoved;
 }

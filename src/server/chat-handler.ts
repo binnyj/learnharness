@@ -345,6 +345,7 @@ export async function handleChatInput(
 			console.error(`[chat ${chatId}] write-ahead persist failed:`, err);
 			return new Response("Your input could not be saved. Please try again.", { status: 500 });
 		}
+		clearAnsweredCodeDraft(chatId, input);
 		emit("record-changed", { chatId });
 		return settledTurnResponse(); // the cheap terminal — no beginTurn, no turn
 	}
@@ -378,6 +379,7 @@ export async function handleChatInput(
 		endTurn(chatId);
 		return new Response("Your input could not be saved. Please try again.", { status: 500 });
 	}
+	if (!stagedAutomatic) clearAnsweredCodeDraft(chatId, input);
 	// Visibility bookkeeping is not the canonical save. Its failure must
 	// neither misreport a saved input as lost nor prevent the turn running.
 	try {
@@ -695,4 +697,11 @@ export async function handleChatInput(
 		console.error(`[chat ${chatId}] turn failed to start:`, err);
 		return Response.json({ error: "Failed to start the turn" }, { status: 500 });
 	}
+}
+
+/** A code answer's draft is cleared only once the answer is durably saved
+ *  (Phase 2): a refused or failed submit keeps the learner's code. */
+function clearAnsweredCodeDraft(chatId: string, input: TurnInput): void {
+	if (input.type !== "answer") return;
+	try { stores.codeDraftStore.clearDraft(chatId, input.toolCallId); } catch { /* best-effort */ }
 }

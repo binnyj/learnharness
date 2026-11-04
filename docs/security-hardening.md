@@ -84,3 +84,28 @@ Results:
 - Full suite: 3,198 of 3,199 tests passed. The one failure, `chat-flow` "a chat with no model refuses the turn", depends on the developer's real `data/settings.json`. It fails when the strong model is a subscription model that is not connected during tests, and passes against an empty data folder (41 of 41). This is a pre-existing test-isolation issue.
 - Type checking passed. Lint reported no errors and one pre-existing warning. `npm run build` passed in place.
 - Live smoke test of `npm run dev` with throwaway data: the server listened only on `127.0.0.1`. Requests without a cookie, with a wrong sign-in secret, with an other-site Origin, or with a `localhost` Host returned 403. The real sign-in returned 200, and responses carried `frame-ancestors 'none'; frame-src 'none'`. Approving `/` returned the broad-folder error, and a narrow folder was saved. In the browser, Settings showed the warning and **Save anyway**, and editing the folder text reset the button.
+
+## Code answers: execution threat model (Phase 2 security gate)
+
+Scope: learner and tutor-authored code in `code`/`probe_code` questions and practice code problems, compiled by the local server and run in the browser. Supported setup: local, single-user, browser mode on macOS.
+
+**What is protected:** API keys and subscription credentials, the local session cookie and launch secret, chats and the knowledge graph, learner files outside approved folders, and other services on the machine or local network.
+
+**Who is untrusted:** all code being compiled or run. That includes learner code and tutor-authored starter code, which may itself be shaped by prompt injection from a web page or document.
+
+**Compilation (server).** `POST /api/code/compile` requires the local session like every API route. esbuild parses and bundles; it never executes learner code. Learner files live in a virtual namespace: relative imports resolve only to the question's own files, bare imports only to `react`/`react-dom` (React questions) or `vue` (Vue questions), and everything else (`fs`, absolute paths, `../`) is refused with an error. Inputs are limited to 8 flat files of 50,000 characters each. HTML questions inline only their own `.css`/`.js` files.
+
+**Execution (browser).** Runs happen only in an iframe with `sandbox="allow-scripts"` (never `allow-same-origin`, popups, forms or top navigation), so code has an opaque origin with no access to app cookies, storage or DOM. The document carries the demo CSP (`default-src 'none'`, `connect-src 'none'`, `img-src data: blob:`, `frame-src 'none'`, `form-action 'none'`), and the app's own `frame-src 'none'` header stops the frame from navigating itself elsewhere. The parent accepts bridge messages only from that run's iframe, and bounds console output (200 lines, 20,000 characters) and errors (20) before showing or submitting them; the server bounds them again when the answer arrives.
+
+**Runaway code.** Every loop in learner code gets a guard that throws after 1 second. Unbounded recursion ends with the browser's own stack-overflow error. Stop removes the iframe.
+
+**Data sent to the model.** The submitted files and the bounded run evidence, as text. Submitted files must be exactly the question's files (names unchanged); the server rejects anything else. Code comments and console text are treated as data in the prompts, never instructions.
+
+**Drafts.** Unsubmitted drafts are stored under `data/code-drafts/<chatId>.json` (mode 0600), cleared when a question is answered, and deleted with the chat. Practice drafts persist across submissions to the same problem (so the learner can revise) until the chat is deleted, with at most 200 drafts per chat.
+
+**Residual risks (accepted for local single-user use):**
+- CPU work that is not a loop, such as catastrophic regex backtracking, can still freeze the LearnHarness tab; reload recovers.
+- Memory exhaustion or timers that never stop (`setInterval`) slow the tab until Stop or reload.
+- WebRTC is not governed by CSP.
+- The esbuild binary parses untrusted text on the server. It is a memory-safe Go program and runs only on loopback behind the session check.
+- A learner who pastes a secret into their own code sends it to the model; redaction covers only configured API-key values in tool results and errors.

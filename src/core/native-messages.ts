@@ -42,7 +42,9 @@ import {
 	HANDOFF_TEXT,
 	NEXT_PROBLEM_TEXT,
 	THINKING_LABEL,
+	CODE_LABEL,
 } from "./contracts/chat.ts";
+import { formatCodeForModel, type CodeFile, type CodeLanguage, type CodeRunResult } from "./code-answer.ts";
 import { compactAnswerForModel, type QuestionAnswerData } from "./question-core.ts";
 import { activeCompactionOf, keptIndexFor } from "./compaction.ts";
 import { parseQuestionInput } from "./tool-parts.ts";
@@ -321,6 +323,27 @@ export function newThinkingMessage(problemCallId: string, text: string): LhMarke
 		content: `${THINKING_LABEL}:\n${text}`,
 		display: true,
 		details: { problemCallId, text },
+		timestamp: Date.now(),
+	};
+}
+
+/** A practice CODE submission (Phase 2): the same practice-thinking marker
+ *  (one learner lane, one card family), carrying the files + last run in
+ *  `details.code`. The model reads "Your code:" then the files and run as
+ *  text, then any thinking under the usual label. */
+export function newCodeSubmissionMessage(
+	problemCallId: string,
+	code: { language: CodeLanguage; files: CodeFile[]; run?: CodeRunResult },
+	text: string,
+): LhMarkerMessage {
+	const thinking = text.trim();
+	return {
+		id: newMessageId(),
+		role: "custom",
+		customType: "practice-thinking",
+		content: `${CODE_LABEL}:\n${formatCodeForModel(code.files, code.run)}${thinking ? `\n\n${THINKING_LABEL}:\n${thinking}` : ""}`,
+		display: true,
+		details: { problemCallId, text: thinking, code },
 		timestamp: Date.now(),
 	};
 }
@@ -855,7 +878,7 @@ export function nativeInputCause(message: AgentMessage, history: readonly AgentM
 		}
 		if (!(QUESTION_TOOLS as readonly string[]).includes(message.toolName) || message.isError || message.details == null || (message.details as { dismissed?: boolean }).dismissed) return "neutral";
 		const details = message.details as Partial<QuestionAnswerData>;
-		if (!["quiz", "ask", "explain"].includes(details.kind ?? "") || typeof details.questionText !== "string" || typeof details.dontKnow !== "boolean" || !Array.isArray(details.answers) || typeof details.answeredAt !== "string") return "unrecognizable";
+		if (!["quiz", "ask", "explain", "code"].includes(details.kind ?? "") || typeof details.questionText !== "string" || typeof details.dontKnow !== "boolean" || !Array.isArray(details.answers) || typeof details.answeredAt !== "string") return "unrecognizable";
 		const calls = history.flatMap((m) => m.role === "assistant" ? m.content.filter((b) => b.type === "toolCall" && b.id === message.toolCallId) : []);
 		return calls.length === 1 && calls[0]?.type === "toolCall" && calls[0].name === message.toolName ? "learner" : "unrecognizable";
 	}

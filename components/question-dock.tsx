@@ -24,12 +24,14 @@ import {
 	parseAskInput,
 	parseQuizInput,
 	parseExplainInput,
+	parseCodeInput,
 	toggleOption,
 	toggleOther,
 	type AnswerRequest,
 	type AskToolInput,
 	type DockSelection,
 	type ExplainToolInput,
+	type CodeToolInput,
 	type QuestionAnswerData,
 	type QuestionFormDraft,
 	type QuestionData,
@@ -39,6 +41,7 @@ import {
 	type Phase3,
 } from "@/src/core";
 import { CONFIDENCE_COLORS, confidenceRailStyle } from "@/components/confidence-rail";
+import { CodeQuestionDockForm } from "@/components/code/code-question-dock";
 
 /**
  * The question dock — a pending quiz/ask REPLACES the chat composer: the
@@ -61,9 +64,11 @@ import { CONFIDENCE_COLORS, confidenceRailStyle } from "@/components/confidence-
  */
 
 export interface QuestionDockProps {
-	toolName: "quiz" | "probe" | "ask_user_question" | "explain" | "recall";
+	toolName: "quiz" | "probe" | "ask_user_question" | "explain" | "recall" | "code" | "probe_code";
 	toolCallId: string;
-	input: QuizToolInput | AskToolInput | ExplainToolInput;
+	input: QuizToolInput | AskToolInput | ExplainToolInput | CodeToolInput;
+	/** The chat the question belongs to — code questions autosave drafts per chat. */
+	chatId?: string;
 	/** Collapse state, owned by the DockOverlay (it drives the shell's height morph). */
 	expanded: boolean;
 	/**
@@ -113,17 +118,18 @@ export function QuestionDock({
 	phase = "probe",
 	dictationClaim = true,
 	compactionRunning = false,
+	chatId,
 }: QuestionDockProps) {
 	// The probe-phase names (owner, 2026-10-09) canonicalize onto their
 	// teach twins for every dock concern — parse dispatch, labels, kinds:
 	// the probe quiz ("probe") is quiz-shaped, the probe free-recall
 	// ("recall") is explain-shaped. Old records keep the teach names.
 	const canonical =
-		toolName === "probe" ? "quiz" : toolName === "recall" ? "explain" : toolName;
+		toolName === "probe" ? "quiz" : toolName === "recall" ? "explain" : toolName === "probe_code" ? "code" : toolName;
 	// The chip's display name carries the tool's OWN name (owner
 	// 2026-10-09): probe-phase questions label Probe/Recall in the
 	// composer; teach tools keep the standing labels.
-	const toolLabel = toolName === "probe" ? "Probe" : toolName === "recall" ? "Recall" : undefined;
+	const toolLabel = toolName === "probe" ? "Probe" : toolName === "recall" ? "Recall" : toolName === "probe_code" ? "Code probe" : toolName === "code" ? "Code" : undefined;
 	// Parse, don't cast (src/core/tool-parts.ts): the model authored this
 	// input, and only the schema the tool declared vouches for its shape.
 	// The dock mounts on input-available parts (already validated at the
@@ -131,9 +137,40 @@ export function QuestionDock({
 	// anything that slips through renders the quiet fallback, never a
 	// crash on `.map` over model-authored bytes.
 	const parsed =
-		canonical === "quiz" ? parseQuizInput(input) : canonical === "explain" ? parseExplainInput(input) : parseAskInput(input);
+		canonical === "quiz" ? parseQuizInput(input) : canonical === "explain" ? parseExplainInput(input) : canonical === "code" ? parseCodeInput(input) : parseAskInput(input);
 	if (!parsed) {
 		return <MalformedQuestion />;
+	}
+	// Code questions (Phase 2) have their own form: the code workspace is the
+	// answer surface and Enter never submits.
+	if (canonical === "code") {
+		return (
+			<>
+				{!expanded && (
+					<QuestionDockBar
+						toolName="code"
+						question={parsed.question}
+						onExpand={onExpand}
+						variant={reveal ? "reveal" : "collapsed"}
+						toolLabel={toolLabel}
+						label={normalizeQuizType((parsed as { type?: unknown }).type) === "predict" ? "Prediction" : undefined}
+					/>
+				)}
+				<div className={expanded ? "dock-variant" : "invisible h-0 overflow-hidden"}>
+					<CodeQuestionDockForm
+						toolName={toolName}
+						toolCallId={toolCallId}
+						input={parsed as CodeToolInput}
+						chatId={chatId}
+						phase={phase}
+						onSubmit={onSubmit}
+						onEscape={onEscape}
+						dictationClaim={dictationClaim}
+						compactionRunning={compactionRunning}
+					/>
+				</div>
+			</>
+		);
 	}
 	return (
 		<>
@@ -196,7 +233,7 @@ export function QuestionDockBar({
 	label,
 	toolLabel,
 }: {
-	toolName: "quiz" | "ask_user_question" | "explain";
+	toolName: "quiz" | "ask_user_question" | "explain" | "code";
 	question: string;
 	onExpand: () => void;
 	variant?: "collapsed" | "reveal";
@@ -239,7 +276,7 @@ export function QuestionDockBar({
 			<span className="shrink-0 text-xs font-medium uppercase tracking-wide text-muted-foreground">
 				{label ??
 							toolLabel ??
-							(toolName === "quiz" ? "Check" : toolName === "explain" ? "Explain" : "Question")}
+							(toolName === "quiz" ? "Check" : toolName === "explain" ? "Explain" : toolName === "code" ? "Code" : "Question")}
 			</span>
 			<span className="min-w-0 flex-1 truncate text-muted-foreground">{teaserText(question)}</span>
 			<span className="flex shrink-0 items-center gap-1 text-xs font-medium">

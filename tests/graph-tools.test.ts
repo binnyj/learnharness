@@ -99,6 +99,7 @@ describe("prober graph tools — registration", () => {
 			"ls",
 			"pdf",
 			"probe",
+			"probe_code",
 			"probe_done",
 			"read",
 			"research",

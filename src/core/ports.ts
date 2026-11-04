@@ -151,6 +151,16 @@ export interface CreateJobInit {
 /** Mergeable fields — identity (id, kind, chatId, toolCallId, createdAt) is immutable. */
 export type JobPatch = Partial<Omit<JobRecord, "id" | "kind" | "chatId" | "toolCallId" | "createdAt">>;
 
+/** Unsubmitted code drafts (Phase 2, owner 2026-11-03): autosaved per chat,
+ *  keyed by the question's tool call id (or the practice problem's), cleared
+ *  on submit/dismissal, deleted with the chat. Never part of the record. */
+export interface CodeDraftStore {
+	getDraft(chatId: string, key: string): import("./code-answer.ts").CodeFile[] | null;
+	saveDraft(chatId: string, key: string, files: import("./code-answer.ts").CodeFile[]): void;
+	clearDraft(chatId: string, key: string): void;
+	deleteChatDrafts(chatId: string): void;
+}
+
 export interface JobStore {
 	/** Create a running job (keyed by toolCallId for spawn dedup). */
 	createJob(init: CreateJobInit): JobRecord;

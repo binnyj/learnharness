@@ -57,3 +57,4 @@ export { customProviderGet, customProviderMutation } from "./custom-provider-htt
 
 export { BroadFolderError, learningFolders, saveLearningFolders } from "./security-settings.ts";
 export { LOCAL_COOKIE, sameSecret, trustedLocalRequest } from "./local-access.ts";
+export { compileCode } from "./code-compile.ts";

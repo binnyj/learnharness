@@ -6,6 +6,7 @@ import { GlyphMark } from "@/components/ui/glyph-mark";
 import { ThinkingBlock } from "@/components/thinking-block";
 import { PathText } from "@/components/file-path-chip";
 import { cn } from "@/lib/utils";
+import { CodeAnswerView } from "@/components/code/code-answer-view";
 import { ToolContentResponse } from "@/components/ai-elements/message";
 import type { QuestionAnswerData } from "@/src/core";
 import { answerForPresentation, parseAskInput, parseQuizInput } from "@/src/core";
@@ -33,6 +34,7 @@ export function AnsweredCard({ answer: savedAnswer, input }: { answer: QuestionA
 
 	const isQuiz = answer.kind === "quiz";
 	const isExplain = answer.kind === "explain";
+	const isCode = answer.kind === "code";
 	const selectedIdx = new Set(answer.answers.map((a) => a.index));
 	const correctIdx = new Set(answer.correctIndices ?? []);
 	// The question's own context rides the ORIGINAL CALL, not the answer
@@ -71,6 +73,10 @@ export function AnsweredCard({ answer: savedAnswer, input }: { answer: QuestionA
 					? "Probe"
 					: answer.tool === "recall"
 						? "Recall"
+						: answer.tool === "probe_code"
+							? "Code probe"
+							: isCode
+								? "Code"
 						: isQuiz
 								? answer.questionType === "predict"
 									? "Prediction"
@@ -162,6 +168,10 @@ export function AnsweredCard({ answer: savedAnswer, input }: { answer: QuestionA
 
 			{answer.text && <div className="lh-prose mt-2 whitespace-pre-wrap">“<PathText text={answer.text} />”</div>}
 
+			{/* Code answers (Phase 2): the submitted files + run summary. */}
+			{isCode && Array.isArray(answer.files) && answer.files.length > 0 && <CodeAnswerView files={answer.files} run={answer.run} />}
+			{isCode && answer.dontKnow && <div className="mt-2 text-sm text-muted-foreground">Answered “I don't know”.</div>}
+
 			{/* The confidence record (owner round 6): the slider's rail, disc
 			    removed — the missing handle itself says "this is a record, not a
 			    control". Same paint, same ticks, same ramp, same % read-out as the
@@ -224,6 +234,13 @@ export function AnsweredCard({ answer: savedAnswer, input }: { answer: QuestionA
 			{/* The explain reveal (owner ruling 2026-09-27): the committed answer
 			    — one field, reasoning included — shown on submit; no verdict,
 			    the model's next reply IS the grading. */}
+			{isCode && answer.committed && (
+				<div className="mt-3 rounded-lg bg-muted px-3 py-2 text-sm text-muted-foreground" data-testid="code-solution">
+					<div className="mb-1 font-medium text-foreground">The solution</div>
+					<ToolContentResponse>{answer.committed}</ToolContentResponse>
+				</div>
+			)}
+
 			{isExplain && answer.committed && (
 				<div className="mt-3 rounded-lg bg-muted py-2 text-sm text-muted-foreground">
 					<span className="font-medium text-foreground">The answer: </span>
