@@ -4,9 +4,9 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { MenuShell } from "@/components/menu-shell";
-import { DeleteSessionDialog } from "@/components/delete-session-dialog";
+import { DeleteSessionDialog, DeleteSessionsDialog } from "@/components/delete-session-dialog";
 import type { ChatDeleteMode } from "@/src/core";
-import { DumbbellIcon, PanelLeftCloseIcon, PanelLeftOpenIcon, PlusIcon, SearchIcon, SettingsIcon } from "lucide-react";
+import { CheckIcon, DumbbellIcon, PanelLeftCloseIcon, PanelLeftOpenIcon, PlusIcon, SearchIcon, SettingsIcon } from "lucide-react";
 import { ActivitySection } from "@/components/activity-dock";
 import { CoverageMenuBlock } from "@/components/extraction-coverage";
 import { LhMark } from "@/components/lh-mark";
@@ -291,10 +291,18 @@ export function SessionRow({
 	onOpen,
 	kbdSelected = false,
 	onContextMenu,
+	selecting = false,
+	checked = false,
+	onToggle,
 }: {
 	chat: ChatListItem;
 	active: boolean;
 	onOpen: () => void;
+	/** Select mode (owner, 2026-11-03): a click ticks the row instead of
+	 *  opening it; Shift-click ticks the range from the last ticked row. */
+	selecting?: boolean;
+	checked?: boolean;
+	onToggle?: (shift: boolean) => void;
 	/** Keyboard-cycle highlight (shortcut wave A: Alt+↑/↓ + Alt+Enter) —
 	 *  visually distinct from the active session, which stays filled. */
 	kbdSelected?: boolean;
@@ -304,8 +312,9 @@ export function SessionRow({
 	return (
 		<button
 			type="button"
-			onClick={onOpen}
-			onContextMenu={onContextMenu}
+			onClick={(e) => (selecting ? onToggle?.(e.shiftKey) : onOpen())}
+			onContextMenu={selecting ? (e) => e.preventDefault() : onContextMenu}
+			aria-pressed={selecting ? checked : undefined}
 			data-testid={kbdSelected ? "session-row-kbd" : "session-row"}
 			className={cn(
 				"relative mb-0.5 flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left transition-colors hover:bg-accent",
@@ -313,7 +322,20 @@ export function SessionRow({
 				kbdSelected && !active && "bg-accent/60 ring-1 ring-border",
 			)}
 		>
-			<SessionStatus busy={chat.busy || chat.compacting} />
+			{selecting ? (
+				<span
+					aria-hidden
+					data-testid="session-row-check"
+					className={cn(
+						"flex size-4 shrink-0 items-center justify-center rounded-sm border",
+						checked ? "border-primary bg-primary text-primary-foreground" : "border-muted-foreground/50",
+					)}
+				>
+					{checked && <CheckIcon className="size-3" />}
+				</span>
+			) : (
+				<SessionStatus busy={chat.busy || chat.compacting} />
+			)}
 			<span className="min-w-0 flex-1">
 				{/* Titles are the learner's/teacher's WORDS — Source Sans 3, the
 				    same voice the words were typed in (every input is lh-prose);
@@ -550,6 +572,11 @@ function SessionsSidebar() {
 	const ctxAnchorRef = useRef<HTMLElement | null>(null);
 	const [renamingId, setRenamingId] = useState<string | null>(null);
 	const [deleting, setDeleting] = useState<ChatListItem | null>(null);
+	// Select mode (owner, 2026-11-03): tick several sessions, delete together.
+	const [selecting, setSelecting] = useState(false);
+	const [selected, setSelected] = useState<Set<string>>(() => new Set());
+	const lastTickedRef = useRef<string | null>(null);
+	const [bulkDeleting, setBulkDeleting] = useState<ChatListItem[] | null>(null);
 
 	const openContext = (e: React.MouseEvent<HTMLButtonElement>, chat: ChatListItem) => {
 		e.preventDefault(); // suppress the native menu
@@ -615,6 +642,37 @@ function SessionsSidebar() {
 			setDeleting(null);
 			setChats((prev) => (prev ? prev.filter((c) => c.id !== id) : prev));
 			if (pathname === `/chat/${id}`) router.push("/");
+			window.dispatchEvent(new CustomEvent("lh:graph-revision", { detail: { revision: graphRevision } }));
+		},
+		[pathname, router],
+	);
+
+	const leaveSelect = useCallback(() => {
+		setSelecting(false);
+		setSelected(new Set());
+		lastTickedRef.current = null;
+	}, []);
+	// Esc leaves select mode (claimed, the one-Esc law) — unless a dialog is up.
+	useEffect(() => {
+		if (!selecting || bulkDeleting) return;
+		const onKeyDown = (e: KeyboardEvent) => {
+			if (e.key !== "Escape") return;
+			e.preventDefault();
+			e.stopPropagation();
+			leaveSelect();
+		};
+		document.addEventListener("keydown", onKeyDown);
+		return () => document.removeEventListener("keydown", onKeyDown);
+	}, [selecting, bulkDeleting, leaveSelect]);
+
+	// Bulk delete success: patch the list, go home if the open session went,
+	// refresh the graph once, and leave select mode when nothing is left.
+	const onBulkDeleted = useCallback(
+		(ids: string[], graphRevision: number) => {
+			const gone = new Set(ids);
+			setChats((prev) => (prev ? prev.filter((c) => !gone.has(c.id)) : prev));
+			setSelected((prev) => new Set([...prev].filter((id) => !gone.has(id))));
+			if (ids.some((id) => pathname === `/chat/${id}`)) router.push("/");
 			window.dispatchEvent(new CustomEvent("lh:graph-revision", { detail: { revision: graphRevision } }));
 		},
 		[pathname, router],
@@ -787,7 +845,8 @@ function SessionsSidebar() {
 				    Practice / All — the real modes first, "All" as the escape
 				    hatch on the right, mirroring the create-buttons above.
 				    Persisted client-side. */}
-				<div className="mx-3 flex items-center gap-0.5 rounded-md border border-border/60 bg-background p-0.5" data-testid="session-kind-filter">
+				<div className="mx-3 flex items-center gap-1.5">
+				<div className="flex flex-1 items-center gap-0.5 rounded-md border border-border/60 bg-background p-0.5" data-testid="session-kind-filter">
 					{(["teach", "practice", "all"] as const).map((f) => (
 						<button
 							key={f}
@@ -804,6 +863,19 @@ function SessionsSidebar() {
 							{f === "teach" ? "Teaching" : f === "all" ? "All" : "Practice"}
 						</button>
 					))}
+				</div>
+					<button
+						type="button"
+						data-testid="session-select-toggle"
+						onClick={() => (selecting ? leaveSelect() : setSelecting(true))}
+						aria-pressed={selecting}
+						className={cn(
+							"shrink-0 rounded-md px-1.5 py-1 text-[11px] uppercase tracking-wider transition-colors",
+							selecting ? "bg-accent text-foreground" : "text-muted-foreground hover:text-foreground",
+						)}
+					>
+						Select
+					</button>
 				</div>
 
 				<div ref={listRef} className="flex-1 overflow-y-auto p-2">
@@ -827,17 +899,73 @@ function SessionsSidebar() {
 									key={c.id}
 									chat={c}
 									active={pathname === `/chat/${c.id}`}
-									kbdSelected={i === kbdIndex}
+									kbdSelected={!selecting && i === kbdIndex}
 									onOpen={() => {
 										setKbdIndex(null);
 										router.push(`/chat/${c.id}`);
 									}}
 									onContextMenu={(e) => openContext(e, c)}
+									selecting={selecting}
+									checked={selected.has(c.id)}
+									onToggle={(shift) => {
+										// Read the anchor NOW: the state updater runs later, after
+										// lastTickedRef has moved to this row.
+										const anchor = lastTickedRef.current;
+										const from = anchor ? shown.findIndex((x) => x.id === anchor) : -1;
+										setSelected((prev) => {
+											const next = new Set(prev);
+											if (shift && from >= 0) {
+												// Shift-click ticks the whole range from the last ticked row.
+												const [a, b] = from < i ? [from, i] : [i, from];
+												for (const row of shown.slice(a, b + 1)) next.add(row.id);
+											} else if (next.has(c.id)) next.delete(c.id);
+											else next.add(c.id);
+											return next;
+										});
+										lastTickedRef.current = c.id;
+									}}
 								/>
 							),
 						)
 					)}
 				</div>
+
+					{/* The select-mode bar: Select all (what is shown), Delete N, Cancel.
+					    Only ticked rows that are currently shown count. */}
+					{selecting && shown && (() => {
+						const visible = shown.filter((c) => selected.has(c.id));
+						const allTicked = shown.length > 0 && visible.length === shown.length;
+						return (
+							<div data-testid="session-select-bar" className="mx-3 mb-2 flex items-center gap-2 rounded-md border border-border/60 bg-background px-2 py-1.5 text-xs">
+								<label className="flex cursor-pointer items-center gap-1.5 text-muted-foreground">
+									<input
+										type="checkbox"
+										data-testid="session-select-all"
+										checked={allTicked}
+										onChange={() => setSelected((prev) => {
+											const next = new Set(prev);
+											for (const c of shown) (allTicked ? next.delete(c.id) : next.add(c.id));
+											return next;
+										})}
+										className="size-3.5 accent-primary"
+									/>
+									All
+								</label>
+								<button
+									type="button"
+									data-testid="session-delete-selected"
+									disabled={visible.length === 0}
+									onClick={() => setBulkDeleting(visible)}
+									className="ml-auto rounded-sm border border-destructive/50 bg-destructive/10 px-2 py-0.5 text-destructive transition-colors hover:bg-destructive/20 disabled:opacity-40"
+								>
+									Delete {visible.length}
+								</button>
+								<button type="button" data-testid="session-select-cancel" onClick={leaveSelect} className="rounded-sm px-1.5 py-0.5 text-muted-foreground hover:text-foreground">
+									Cancel
+								</button>
+							</div>
+						);
+					})()}
 
 					{/* Background agents (owner, sidebar round): the section is
 					    ALWAYS here — empty means empty (the header sits alone); it
@@ -937,6 +1065,18 @@ function SessionsSidebar() {
 					chat={deleting}
 					onClose={() => setDeleting(null)}
 					onDeleted={onDeleted}
+				/>
+				<DeleteSessionsDialog
+					chats={bulkDeleting}
+					onClose={() => {
+						setBulkDeleting(null);
+						// Nothing left ticked (all deleted) → done selecting.
+						setSelected((prev) => {
+							if (prev.size === 0) setSelecting(false);
+							return prev;
+						});
+					}}
+					onDeleted={onBulkDeleted}
 				/>
 			</aside>
 	);
