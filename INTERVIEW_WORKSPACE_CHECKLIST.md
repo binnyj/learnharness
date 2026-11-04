@@ -129,7 +129,7 @@ Integration: `components/practice-dock.tsx`, the question dock in `components/ch
 - [x] Support JavaScript, TypeScript/JSX, HTML, and CSS; one file first, file tabs when a question needs several. *(G1)* Also Vue 3 JSX/TSX (owner).
 - [x] Scope keys so Enter types a newline and only an explicit shortcut or button submits. *(G2)* ⌘/Ctrl+Enter or the button; verified in the browser.
 - [x] Keep drafts across refresh and restart until submitted; never lose unfinished code. *(G5)* Server drafts; cleared only after the answer is durably saved (a refused submit keeps the code; verified in the browser).
-- [ ] Keep the tutor and conversation reachable while editing; define compact-window layout and keyboard navigation. *(G1)* Partly done: the transcript stays scrollable above the dock; Tab indents and Escape leaves the editor. A compact-window layout has not been designed or checked.
+- [ ] Keep the tutor and conversation reachable while editing; define compact-window layout and keyboard navigation. *(G1)* Partly done: the transcript stays scrollable above the dock; Tab indents and Escape leaves the editor. Checked with 8 files at 600, 1024 and 1440px wide: file tabs stay on one row that scrolls sideways; the toolbar has a fixed row; the preview and console fold to one status line (saving about 220px); the bottom row fits at narrow widths. Still open (owner, 2026-11-03): the layout stays stacked for now. A side-by-side editor/preview was tried by widening the dock to 72rem for code questions and set aside; find another way to show code and output together without covering most of the lesson.
 
 Acceptance: the learner can write, edit, and submit code in the dock without leaving LearnHarness or losing work.
 

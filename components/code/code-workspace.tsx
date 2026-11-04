@@ -13,7 +13,7 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { PlayIcon, RotateCcwIcon, SquareIcon } from "lucide-react";
+import { ChevronDownIcon, PlayIcon, RotateCcwIcon, SquareIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
 	CODE_LANGUAGE_LABELS,
@@ -72,6 +72,11 @@ export function CodeWorkspace({
 	const [runPrint, setRunPrint] = useState<string | null>(null);
 	const [srcDoc, setSrcDoc] = useState<string | null>(null);
 	const [runId, setRunId] = useState(0);
+	// The preview + console fold to one status line (owner: keep the layout
+	// stacked for now); every new run opens it again.
+	const [outputOpen, setOutputOpen] = useState(true);
+	const activeTabRef = useRef<HTMLButtonElement | null>(null);
+	useEffect(() => { activeTabRef.current?.scrollIntoView({ block: "nearest", inline: "nearest" }); }, [active]);
 	const iframeRef = useRef<HTMLIFrameElement | null>(null);
 	const onChangeRef = useRef(onChange);
 	onChangeRef.current = onChange;
@@ -144,6 +149,7 @@ export function CodeWorkspace({
 			setRun(freshRunState());
 			setSrcDoc(buildRunDocument(body));
 			setRunId((n) => n + 1);
+			setOutputOpen(true);
 		} catch {
 			setRun({ running: false, result: { status: "compile-error", output: [], errors: ["Could not reach the local compiler."] } });
 		} finally {
@@ -168,31 +174,15 @@ export function CodeWorkspace({
 	const current = files[active] ?? files[0]!;
 	const status = compiling ? "Compiling…" : run ? (run.running ? "Running…" : statusLabel(run.result)) : null;
 	const stale = run && runPrint !== null && runPrint !== fingerprint;
+	const showOutput = allowRun && (run !== null || compiling);
 
 	return (
 		<div data-testid="code-workspace" className="overflow-hidden rounded-[10px] border border-border/70 bg-background/60">
-			<div className="flex flex-wrap items-center gap-1 border-b border-border/60 px-2 py-1.5">
-				<span className="mr-1 text-xs font-medium uppercase tracking-wide text-muted-foreground">{CODE_LANGUAGE_LABELS[language]}</span>
-				<div role="tablist" aria-label="Files" className="flex min-w-0 flex-1 flex-wrap gap-1">
-					{files.map((f, i) => (
-						<button
-							key={f.name}
-							type="button"
-							role="tab"
-							aria-selected={i === active}
-							onClick={() => setActive(i)}
-							data-testid="code-file-tab"
-							className={cn(
-								"rounded-md px-2 py-0.5 font-mono text-xs transition-colors",
-								i === active ? "bg-accent text-foreground" : "text-muted-foreground hover:bg-accent/50",
-							)}
-						>
-							{f.name}
-						</button>
-					))}
-				</div>
+			{/* Fixed-height toolbar: label left, actions right — never wraps. */}
+			<div className="flex items-center gap-1 px-2 py-1.5">
+				<span className="mr-auto text-xs font-medium uppercase tracking-wide text-muted-foreground">{CODE_LANGUAGE_LABELS[language]}</span>
 				{confirmReset ? (
-					<span className="flex items-center gap-1 text-xs">
+					<span className="flex shrink-0 items-center gap-1 text-xs">
 						Discard your changes?
 						<button type="button" onClick={reset} data-testid="code-reset-confirm" className="rounded-md px-1.5 py-0.5 font-medium text-destructive hover:bg-accent">Reset</button>
 						<button type="button" onClick={() => setConfirmReset(false)} className="rounded-md px-1.5 py-0.5 hover:bg-accent">Keep</button>
@@ -204,68 +194,102 @@ export function CodeWorkspace({
 						disabled={sameFiles(files, starter)}
 						title="Reset to the starter files"
 						data-testid="code-reset"
-						className="flex items-center gap-1 rounded-md px-1.5 py-0.5 text-xs text-muted-foreground hover:bg-accent disabled:opacity-40"
+						className="flex shrink-0 items-center gap-1 rounded-md px-1.5 py-0.5 text-xs text-muted-foreground hover:bg-accent disabled:opacity-40"
 					>
 						<RotateCcwIcon className="size-3" /> Reset
 					</button>
 				)}
 				{allowRun && (srcDoc ? (
-					<button type="button" onClick={stopRun} data-testid="code-stop" className="flex items-center gap-1 rounded-md border px-2 py-0.5 text-xs font-medium hover:bg-accent">
+					<button type="button" onClick={stopRun} data-testid="code-stop" className="flex shrink-0 items-center gap-1 rounded-md border px-2 py-0.5 text-xs font-medium hover:bg-accent">
 						<SquareIcon className="size-3" /> Stop
 					</button>
 				) : (
-					<button type="button" onClick={() => void startRun()} disabled={compiling} data-testid="code-run" className="flex items-center gap-1 rounded-md border px-2 py-0.5 text-xs font-medium hover:bg-accent disabled:opacity-50">
+					<button type="button" onClick={() => void startRun()} disabled={compiling} data-testid="code-run" className="flex shrink-0 items-center gap-1 rounded-md border px-2 py-0.5 text-xs font-medium hover:bg-accent disabled:opacity-50">
 						<PlayIcon className="size-3" /> Run
 					</button>
 				))}
 			</div>
 
-			<div className="max-h-[45dvh] overflow-auto">
-				<CodeEditor
-					key={current.name}
-					fileName={current.name}
-					value={current.content}
-					ariaLabel={`Code editor: ${current.name}`}
-					onSubmitShortcut={onSubmitShortcut}
-					onChange={(content) => setFiles((prev) => prev.map((f) => (f.name === current.name ? { ...f, content } : f)))}
-				/>
+			{/* One row of file tabs that scrolls sideways; the open file stays in view. */}
+			<div role="tablist" aria-label="Files" data-testid="code-file-tabs" className="flex gap-1 overflow-x-auto border-y border-border/60 px-2 py-1 [scrollbar-width:thin]">
+				{files.map((f, i) => (
+					<button
+						key={f.name}
+						ref={i === active ? activeTabRef : undefined}
+						type="button"
+						role="tab"
+						aria-selected={i === active}
+						onClick={() => setActive(i)}
+						data-testid="code-file-tab"
+						className={cn(
+							"shrink-0 whitespace-nowrap rounded-md px-2 py-0.5 font-mono text-xs transition-colors",
+							i === active ? "bg-accent text-foreground" : "text-muted-foreground hover:bg-accent/50",
+						)}
+					>
+						{f.name}
+					</button>
+				))}
 			</div>
 
-			{allowRun && (run || compiling) && (
-				<div className="border-t border-border/60" data-testid="code-run-panel">
-					<div className="flex items-center gap-2 px-2.5 py-1 text-xs">
-						<span data-testid="code-run-status" className={cn("font-medium", run && !run.running && run.result.status !== "ok" ? "text-destructive" : "text-muted-foreground")}>
-							{status}
-						</span>
-						{stale && <span className="text-muted-foreground">· edited since this run</span>}
-					</div>
-					{srcDoc && (
-						<iframe
-							key={runId}
-							ref={iframeRef}
-							title="Code preview"
-							// allow-scripts ONLY — never allow-same-origin: learner code
-							// can never touch the app's storage, cookies or DOM.
-							sandbox="allow-scripts"
-							srcDoc={srcDoc}
-							data-testid="code-preview"
-							className={cn("w-full border-t border-border/60 bg-white", VISIBLE_PREVIEW[language] ? "h-56" : "h-0")}
-						/>
-					)}
-					{run && (run.result.errors.length > 0 || run.result.output.length > 0) && (
-						<div data-testid="code-console" className="max-h-40 overflow-auto border-t border-border/60 px-2.5 py-1.5 font-mono text-xs">
-							{run.result.errors.map((e, i) => (
-								<pre key={`e${i}`} className="whitespace-pre-wrap text-destructive">{e}</pre>
-							))}
-							{run.result.output.map((o, i) => (
-								<pre key={`o${i}`} className={cn("whitespace-pre-wrap", o.level === "error" ? "text-destructive" : o.level === "warn" ? "text-amber-600 dark:text-amber-400" : "text-foreground")}>
-									{o.text}
-								</pre>
-							))}
-						</div>
-					)}
+			{/* Stacked: editor, then the foldable output (owner, 2026-11-03). */}
+			<div>
+				<div className="max-h-[45dvh] min-w-0 overflow-auto">
+					<CodeEditor
+						key={current.name}
+						fileName={current.name}
+						value={current.content}
+						ariaLabel={`Code editor: ${current.name}`}
+						onSubmitShortcut={onSubmitShortcut}
+						onChange={(content) => setFiles((prev) => prev.map((f) => (f.name === current.name ? { ...f, content } : f)))}
+					/>
 				</div>
-			)}
+
+				{showOutput && (
+					<div className="flex min-w-0 flex-col border-t border-border/60" data-testid="code-run-panel">
+						<button
+							type="button"
+							onClick={() => setOutputOpen((v) => !v)}
+							aria-expanded={outputOpen}
+							data-testid="code-output-toggle"
+							className="flex items-center gap-2 px-2.5 py-1 text-left text-xs"
+						>
+							<span data-testid="code-run-status" className={cn("font-medium", run && !run.running && run.result.status !== "ok" ? "text-destructive" : "text-muted-foreground")}>
+								{status}
+							</span>
+							{stale && <span className="text-muted-foreground">· edited since this run</span>}
+							<ChevronDownIcon className={cn("ml-auto size-3.5 text-muted-foreground transition-transform", !outputOpen && "-rotate-90")} />
+						</button>
+						{/* Folded output stays mounted (the program keeps running). */}
+						<div className={cn("flex min-h-0 flex-1 flex-col", !outputOpen && "hidden")} data-testid="code-output">
+							{srcDoc && (
+								<iframe
+									key={runId}
+									ref={iframeRef}
+									title="Code preview"
+									// allow-scripts ONLY — never allow-same-origin: learner code
+									// can never touch the app's storage, cookies or DOM.
+									sandbox="allow-scripts"
+									srcDoc={srcDoc}
+									data-testid="code-preview"
+									className={cn("w-full border-t border-border/60 bg-white", VISIBLE_PREVIEW[language] ? "h-56" : "h-0")}
+								/>
+							)}
+							{run && (run.result.errors.length > 0 || run.result.output.length > 0) && (
+								<div data-testid="code-console" className="max-h-40 overflow-auto border-t border-border/60 px-2.5 py-1.5 font-mono text-xs">
+									{run.result.errors.map((e, i) => (
+										<pre key={`e${i}`} className="whitespace-pre-wrap text-destructive">{e}</pre>
+									))}
+									{run.result.output.map((o, i) => (
+										<pre key={`o${i}`} className={cn("whitespace-pre-wrap", o.level === "error" ? "text-destructive" : o.level === "warn" ? "text-amber-600 dark:text-amber-400" : "text-foreground")}>
+											{o.text}
+										</pre>
+									))}
+								</div>
+							)}
+						</div>
+					</div>
+				)}
+			</div>
 		</div>
 	);
 }

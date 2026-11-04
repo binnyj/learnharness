@@ -160,7 +160,7 @@ export function PracticeDock({ problemCallId, input, expanded, onExpand, onSubmi
 			    Shift+Enter makes a newline — less to decide about. */}
 			<div
 				data-testid="practice-thinking-field"
-				className="m-1.5 rounded-[10px] border border-border/70 bg-background/60 transition-colors focus-within:border-primary/50"
+				className="@container m-1.5 rounded-[10px] border border-border/70 bg-background/60 transition-colors focus-within:border-primary/50"
 			>
 				<div className="px-2.5 pt-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
 					YOUR THINKING
@@ -205,10 +205,11 @@ export function PracticeDock({ problemCallId, input, expanded, onExpand, onSubmi
 				    one p-1 row. Corner radii concentric: shell 16 − m-1.5 (6) =
 				    field 10 − p-1 (4) = button 6. */}
 				<div className="flex items-center justify-between gap-2 p-1">
-					<span aria-hidden className="pl-1.5 text-xs text-muted-foreground">
+					{/* Code problems: the hint yields first when the dock is narrow. */}
+					<span aria-hidden className={cn("pl-1.5 text-xs text-muted-foreground", codeRequest && "hidden @md:inline")}>
 						{compactionRunning ? "compacting session…" : codeRequest ? "⌘↵ submits code · ↵ newline" : "↵ submits · ⇧↵ newline"}
 					</span>
-					<div className="ml-auto flex items-center gap-1.5">
+					<div className="ml-auto flex flex-wrap items-center justify-end gap-1.5">
 						<Button
 							type="button"
 							variant={codeRequest ? "ghost" : "default"}

@@ -123,7 +123,7 @@ export function CodeQuestionDockForm({
 					send(false);
 				}}
 			>
-				<div data-testid="thinking-field" className="rounded-[10px] border border-border/70 bg-background/60 transition-colors focus-within:border-primary/50">
+				<div data-testid="thinking-field" className="@container rounded-[10px] border border-border/70 bg-background/60 transition-colors focus-within:border-primary/50">
 					<div className="px-2.5 pt-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">Your thinking</div>
 					<PathInput
 						value={thinking}
@@ -151,10 +151,11 @@ export function CodeQuestionDockForm({
 						)}
 					/>
 					<div className="flex items-center justify-between gap-2 p-1">
-						<span aria-hidden className="pl-1.5 text-xs text-muted-foreground">
+						{/* The shortcut hint yields first when the dock is narrow. */}
+						<span aria-hidden className="hidden pl-1.5 text-xs text-muted-foreground @md:inline">
 							{compactionRunning ? "compacting session…" : "⌘↵ submits · ↵ newline"}
 						</span>
-						<div className="ml-auto flex items-center gap-1.5">
+						<div className="ml-auto flex flex-wrap items-center justify-end gap-1.5">
 							<Button
 								type="button"
 								variant="ghost"
