@@ -1,3 +1,4 @@
+import { authorizeSourcePath } from "./source-access.ts";
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import { Type } from "typebox";
@@ -53,7 +54,7 @@ export const grepTool: AgentTool<typeof grepInput> = {
 	parameters: grepInput,
 	execute: serverExecute("grep", grepInput, async (input, ctx) => {
 		if (ctx?.signal?.aborted) return "Operation aborted";
-		const searchPath = resolveSourcePath(input.path);
+		const searchPath = authorizeSourcePath(resolveSourcePath(input.path));
 
 		let stat;
 		try {
@@ -119,7 +120,7 @@ export const grepTool: AgentTool<typeof grepInput> = {
 			}
 			let fileStat;
 			try {
-				fileStat = await fs.stat(filePath);
+				fileStat = await fs.stat(authorizeSourcePath(filePath));
 			} catch {
 				continue;
 			}
@@ -128,7 +129,7 @@ export const grepTool: AgentTool<typeof grepInput> = {
 
 			let content: string;
 			try {
-				content = await fs.readFile(filePath, "utf-8");
+				content = await fs.readFile(authorizeSourcePath(filePath), "utf-8");
 			} catch {
 				continue;
 			}

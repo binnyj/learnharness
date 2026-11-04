@@ -1,5 +1,6 @@
 import type { Agent, AgentEvent, AgentMessage } from "@earendil-works/pi-agent-core";
 import { ToolCallIdUniquifier } from "./call-ids.ts";
+import { redactSecrets, secretValues } from "../../core/secret-redaction.ts";
 import type { ChatGPTRequestCycle } from "../../agent/chatgpt-request-cycle.ts";
 
 /**
@@ -240,6 +241,12 @@ export function runPiTurn(spec: PiTurnSpec): PiTurnHandle {
 
 	const handle = (event: AgentEvent) => {
 		if (settled) return;
+		// Provider error text can echo request details. Redact in place: the
+		// same message object is the one agent_end persists.
+		if (event.type === "message_end") {
+			const m = event.message as { errorMessage?: unknown } | undefined;
+			if (m && typeof m.errorMessage === "string") m.errorMessage = redactSecrets(m.errorMessage, secretValues(process.env));
+		}
 		// THE LACAN FIX: ids uniquify HERE, before any view — the one seam
 		// every consumer downstream shares. No uniquifier → verbatim.
 		const uniqued = uniquifier ? uniquifier.event(event) : event;
@@ -288,7 +295,7 @@ export function runPiTurn(spec: PiTurnSpec): PiTurnHandle {
 				return;
 			}
 			console.error("[turn] agent loop failed:", err);
-			reportedErrorText = onError?.(err) ?? "An error occurred.";
+			reportedErrorText = redactSecrets(onError?.(err) ?? "An error occurred.", secretValues(process.env));
 			send({ type: "error", errorText: reportedErrorText });
 			settleWith();
 			closeAll();

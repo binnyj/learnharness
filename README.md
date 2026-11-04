@@ -68,7 +68,7 @@ All three platforms support in-app updates.
 
 ```bash
 npm install
-npm run dev        # http://localhost:3000
+npm run dev        # open the private local sign-in link printed in Terminal
 npm test           # deterministic, no LLM, no network
 ```
 
@@ -81,3 +81,7 @@ Questions, bug reports, and feature requests: [GitHub Issues](https://github.com
 [AGPL-3.0](LICENSE)
 
 The app is free and open forever. If we ever charge for anything, it will be for convenience — managed keys, hosting — never for features you can run locally.
+
+## Security-hardened local branch
+
+See [security hardening](docs/security-hardening.md) for folder permissions, authenticated local startup, macOS Keychain-backed credentials, static demo previews, validation, and remaining limitations.

@@ -1,3 +1,5 @@
+import "./helpers/security-fixture.ts";
+import { grantFixtureFolders } from "./helpers/grant-fixture-folders.ts";
 /**
  * Raw-stream credential regression: the Sept 26 Agent getApiKey-hook tests
  * do not exercise these two hand-rolled loops. All credentials here are
@@ -336,3 +338,6 @@ function sseResponse(transport: Transport, calls: Call[], round: number): Respon
 	const data = events.map((event) => `${typeof event.type === "string" ? `event: ${event.type}\n` : ""}data: ${JSON.stringify(event)}\n\n`).join("") + (transport.api === "openai-completions" ? "data: [DONE]\n\n" : "");
 	return new Response(data, { status: 200, headers: { "content-type": "text/event-stream" } });
 }
+
+import { before as beforeSecurityFixtures } from "node:test";
+beforeSecurityFixtures(async () => { await grantFixtureFolders(); });

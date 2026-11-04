@@ -41,6 +41,7 @@ import {
 } from "@/src/core";
 import { useAppearance } from "./appearance.tsx";
 import { SettingsSection } from "./controls.tsx";
+import { SecuritySettings } from "./security-settings.tsx";
 import { UpdateSettings } from "./update-settings.tsx";
 import { AgentSection } from "./agent-section.tsx";
 import type { ModelsSettings } from "@/src/core";
@@ -360,6 +361,7 @@ export function SettingsDialogBody({
 									title="General"
 									testid="section-general"
 								>
+									<SecuritySettings />
 									<UpdateSettings
 										autoUpdate={record.general?.autoUpdate ?? true}
 										onAutoUpdateChange={(on) =>

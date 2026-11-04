@@ -1,6 +1,7 @@
 import type { AgentTool, AgentToolResult } from "@earendil-works/pi-agent-core";
 import type { Static, TSchema } from "typebox";
 import { CONCLUDE_ACK_TEXT } from "../core/contracts/chat.ts";
+import { redactDeep, redactSecrets, secretValues } from "../core/secret-redaction.ts";
 
 /**
  * tool-execute — the execution machinery every server-side lh tool shares,
@@ -160,22 +161,24 @@ function isImageResult(v: unknown): v is ImageFileResult {
  * parts with details ?? null.
  */
 export function toToolResult(result: unknown): AgentToolResult<unknown> {
+	// Live credential values never reach the model or the saved record.
+	const secrets = secretValues(process.env);
 	if (isImageResult(result)) {
 		return {
 			content: [
-				{ type: "text", text: result.text },
+				{ type: "text", text: redactSecrets(result.text, secrets) },
 				...(result.images ?? []).map((img) => ({
 					type: "image" as const,
 					data: img.data,
 					mimeType: img.mimeType,
 				})),
 			],
-			details: result.details ?? null,
+			details: redactDeep(result.details ?? null, secrets),
 		};
 	}
 	return {
-		content: [{ type: "text", text: typeof result === "string" ? result : JSON.stringify(result) }],
-		details: result,
+		content: [{ type: "text", text: redactSecrets(typeof result === "string" ? result : JSON.stringify(result), secrets) }],
+		details: redactDeep(result, secrets),
 	};
 }
 

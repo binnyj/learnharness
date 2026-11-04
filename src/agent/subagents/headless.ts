@@ -1,8 +1,9 @@
+import { demoEnvelope } from "../../core/demo-security.ts";
 import * as fs from "node:fs";
 import { createRequire } from "node:module";
 import * as os from "node:os";
 import * as path from "node:path";
-import { fileURLToPath, pathToFileURL } from "node:url";
+import { fileURLToPath } from "node:url";
 import { standardFontsDir } from "./pdf-ops";
 
 /**
@@ -140,6 +141,8 @@ export function browserServiceSpawnEnv(
 	// The artifact renderer is not an authorized app API client.
 	delete out.LH_DESKTOP_API_SECRET;
 	delete out.LH_DESKTOP_SERVER;
+	delete out.LH_WEB_API_SECRET;
+	for (const name of Object.keys(out)) if (/(API_KEY|TOKEN|SECRET|PASSWORD|CREDENTIAL)/i.test(name)) delete out[name];
 	return out;
 }
 
@@ -234,25 +237,32 @@ async function connectBrowserService(): Promise<import("puppeteer-core").Browser
  *  so concurrent jobs queue here instead of fighting over one webContents. */
 let helperPageChain: Promise<unknown> = Promise.resolve();
 
+async function restrictPage(page: import("puppeteer-core").Page): Promise<void> {
+ await page.setBypassServiceWorker(true);
+ await page.setRequestInterception(true);
+ page.on("request", request => {
+  // All network destinations, redirects, and local files are denied. Only the
+  // self-contained initial data document and inline resources can load.
+  const url = request.url();
+  void (url.startsWith("data:") || url === "about:blank" || url === "about:srcdoc" ? request.continue() : request.abort("blockedbyclient"));
+ });
+}
+
 async function withBrowserPage<T>(fn: (page: import("puppeteer-core").Page) => Promise<T>): Promise<T> {
 	// Helper first (owner ruling 2026-10-10: the app's own Chromium primary,
 	// system Chrome fallback) — deterministic across users, zero install.
 	const helper = await connectBrowserService();
 	if (helper) {
-		const run = async (): Promise<T> => {
-			const pages = await helper.pages();
-			const page = pages.find((p) => p.target().type() === "page");
-			if (!page) throw new Error("browser service: no page target");
-			try {
-				return await fn(page);
-			} finally {
-				// Drop all page state (JS heap, listeners) between jobs.
-				await page.goto("about:blank").catch(() => {});
-			}
+		const run = async (): Promise<{ value: T } | null> => {
+			let context;
+			try { context = await helper.createBrowserContext(); } catch { return null; }
+			try { const page = await context.newPage(); await restrictPage(page); return { value: await fn(page) }; }
+			finally { await context.close(); }
 		};
 		const next = helperPageChain.then(run, run);
 		helperPageChain = next.catch(() => {});
-		return next;
+		const result = await next;
+		if (result !== null) return result.value;
 	}
 
 	// Chrome fallback: per-job launch, close on the way out (old semantics).
@@ -260,13 +270,15 @@ async function withBrowserPage<T>(fn: (page: import("puppeteer-core").Page) => P
 	const executablePath = resolveChromeExecutablePath();
 	const browser = await puppeteer.launch({
 		headless: true,
+		env: browserServiceSpawnEnv(process.env),
 		// Explicit path when we found one; otherwise let puppeteer resolve the
 		// system Chrome install itself via the "chrome" channel.
 		...(executablePath ? { executablePath } : { channel: "chrome" as const }),
-		args: ["--disable-gpu", "--no-sandbox", "--disable-dev-shm-usage"],
+		args: ["--disable-gpu", "--disable-dev-shm-usage"],
 	});
 	try {
 		const page = await browser.newPage();
+		await restrictPage(page);
 		return await fn(page);
 	} finally {
 		await browser.close().catch(() => {});
@@ -279,6 +291,18 @@ function tempDir(prefix: string): string {
 }
 
 // ─── Demo execution ──────────────────────────────────────────────────────────
+
+/** Per-step limit for work inside generated content. A looping demo blocks
+ *  its renderer, so evaluate/screenshot would otherwise wait forever; the
+ *  caller's context/browser close then tears the renderer down. */
+const STEP_DEADLINE_MS = 10_000;
+export function withDeadline<T>(work: Promise<T>, ms: number, label: string): Promise<T> {
+	let timer: ReturnType<typeof setTimeout> | undefined;
+	const deadline = new Promise<never>((_, reject) => {
+		timer = setTimeout(() => reject(new Error(`${label} timed out after ${ms / 1000}s (the page may be stuck in a loop)`)), ms);
+	});
+	return Promise.race([work, deadline]).finally(() => clearTimeout(timer));
+}
 
 async function runDemo(html: string, opts: RunDemoOptions = {}): Promise<DemoRunResult> {
 	const settleMs = opts.settleMs ?? 2000;
@@ -301,11 +325,13 @@ async function runDemo(html: string, opts: RunDemoOptions = {}): Promise<DemoRun
 		page.on("requestfailed", (req) => failedRequests.push(`${req.url()} (${req.failure()?.errorText ?? "failed"})`));
 
 		try {
-			await page.goto(pathToFileURL(file).href, { waitUntil: "load", timeout: 30_000 });
+			await page.goto(`data:text/html;base64,${Buffer.from(demoEnvelope(fs.readFileSync(file, "utf8"))).toString("base64")}`, { waitUntil: "load", timeout: 30_000 });
 			await new Promise((resolve) => setTimeout(resolve, settleMs));
 			if (opts.probe) {
 				try {
-					probeResult = await page.evaluate(opts.probe);
+					const frame = page.frames().find(f => f !== page.mainFrame());
+					if (!frame) throw new Error("Demo frame unavailable");
+					probeResult = await withDeadline(frame.evaluate(opts.probe), STEP_DEADLINE_MS, "probe");
 				} catch (err) {
 					pageErrors.push(`probe failed: ${err instanceof Error ? err.message : String(err)}`);
 				}
@@ -444,8 +470,8 @@ async function renderSvg(svg: string, opts: RenderSvgOptions = {}): Promise<Buff
 	return withBrowserPage(async (page) => {
 		const { width, height } = svgViewport(svg, opts);
 		await page.setViewport({ width, height });
-		await page.goto(pathToFileURL(file).href, { waitUntil: "load", timeout: 30_000 });
-		const shot = (await page.screenshot({ fullPage: true, type: "png" })) as Buffer;
+		await page.goto(`data:text/html;base64,${Buffer.from(demoEnvelope(fs.readFileSync(file, "utf8"))).toString("base64")}`, { waitUntil: "load", timeout: 30_000 });
+		const shot = (await withDeadline(page.screenshot({ fullPage: true, type: "png" }), STEP_DEADLINE_MS, "screenshot")) as Buffer;
 		// Chrome's raw split-IDAT PNG is canonicalized before it reaches a
 		// provider (see providerSafePng) — the visual-maker feeds this exact
 		// buffer back to the vision model as its only way to "look".

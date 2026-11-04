@@ -352,13 +352,17 @@ describe("dispatch card rendering (the tool-call ack box)", () => {
 });
 
 describe("steer card rendering (the delivered artifact)", () => {
-	it("renders a sandboxed demo iframe (allow-scripts, NO allow-same-origin) with the bridge injected", () => {
+	it("renders a static sandboxed demo iframe (click-to-run, NO allow-same-origin) with the bridge injected", () => {
 		const steer = buildSubagentSteer(
 			{ id: "jd", kind: "demo", toolCallId: "cd" },
 			{ title: "Damped oscillator", html: DEMO_HTML, tested: true },
 		);
 		const html = renderToStaticMarkup(<SubagentSteerCard message={projectNative([steer])[0] as never} />);
-		assert.match(html, /sandbox="allow-scripts"/);
+		// Scripts stay off until the learner presses Run demo.
+		assert.match(html, /sandbox=""/);
+		assert.ok(!html.includes("allow-scripts"), "never runs before Run demo");
+		assert.match(html, /Run demo/);
+		assert.match(html, /http-equiv=&quot;Content-Security-Policy&quot;/);
 		assert.ok(!html.includes("allow-same-origin"), "never allow-same-origin");
 		assert.match(html, /demo-resize/);
 		assert.match(html, /demo-error/);

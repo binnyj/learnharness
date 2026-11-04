@@ -1,3 +1,4 @@
+import { authorizeSourcePath } from "./source-access.ts";
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import { Type } from "typebox";
@@ -30,7 +31,7 @@ export const lsTool: AgentTool<typeof lsInput> = {
 	description: `List directory contents. Returns entries sorted alphabetically, with '/' suffix for directories. Includes dotfiles. Output is truncated to ${DEFAULT_LIMIT} entries or ${formatSize(MAX_OUTPUT_BYTES)} (whichever is hit first).`,
 	parameters: lsInput,
 	execute: serverExecute("ls", lsInput, async (input) => {
-		const dirPath = resolveSourcePath(input.path);
+		const dirPath = authorizeSourcePath(resolveSourcePath(input.path));
 
 		let stat;
 		try {
@@ -60,7 +61,7 @@ export const lsTool: AgentTool<typeof lsInput> = {
 			}
 			const fullPath = path.join(dirPath, entry);
 			try {
-				const entryStat = await fs.stat(fullPath);
+				const entryStat = await fs.stat(authorizeSourcePath(fullPath));
 				lines.push(entryStat.isDirectory() ? `${entry}/` : entry);
 			} catch {
 				// pi: skip entries it cannot stat

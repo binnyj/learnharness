@@ -1,3 +1,5 @@
+import "./helpers/vault-fixture.ts";
+import syncFs from "node:fs";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { createRequire } from "node:module";
@@ -84,15 +86,7 @@ for (const phase of ["sync", "rename"] as const) {
 			const store = fileStore(file);
 			await store.write(initial());
 			const before = await fs.readFile(file, "utf8");
-			if (phase === "rename") t.mock.method(fs, "rename", async () => { throw new Error("scratch rename failure"); });
-			else {
-				const open = fs.open.bind(fs);
-				t.mock.method(fs, "open", async (...args: Parameters<typeof fs.open>) => {
-					const handle = await open(...args);
-					if (args[1] === "wx") t.mock.method(handle, "sync", async () => { throw new Error("scratch sync failure"); });
-					return handle;
-				});
-			}
+			t.mock.method(syncFs, phase === "rename" ? "renameSync" : "fsyncSync", () => { throw new Error(`scratch ${phase} failure`); });
 			await assert.rejects(store.write({ ...initial(), allowBackgroundUse: false }), /^Error: storage$/);
 			assert.equal(await fs.readFile(file, "utf8"), before);
 			assert.deepEqual(await fs.readdir(dir), ["chatgpt-credentials.json"]);

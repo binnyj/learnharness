@@ -1,3 +1,4 @@
+import { authorizeSourcePath } from "./source-access.ts";
 import * as fs from "node:fs/promises";
 import { Type } from "typebox";
 import type { Api, Model } from "@earendil-works/pi-ai";
@@ -98,7 +99,7 @@ export function createReadTool(model?: ReadModel): AgentTool<typeof readInput> {
 		description: `Read the contents of a file. Supports text files and images (jpg, png, gif, webp, bmp). Images are sent as attachments. For text files, output is truncated to 2000 lines or 50.0KB (whichever is hit first). Use offset/limit for large files. When you need the full file, continue with offset until complete.`,
 		parameters: readInput,
 		execute: serverExecute("read", readInput, async ({ path: rawPath, offset, limit }, { signal }): Promise<string | ImageFileResult> => {
-			const absolute = resolveSourcePath(rawPath);
+			const absolute = authorizeSourcePath(resolveSourcePath(rawPath));
 			const mime = await detectSupportedImageMimeTypeFromFile(absolute);
 			const buffer = await fs.readFile(absolute, { signal });
 			if (mime) {

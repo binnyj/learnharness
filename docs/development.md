@@ -10,12 +10,12 @@ Use a current Node.js/npm installation compatible with the lockfile and native d
 
 ```bash
 npm ci                 # install the locked dependencies
-npm run dev            # Next development server, normally http://localhost:3000
+npm run dev            # loopback server; open its private sign-in link
 
 npm run build          # production Next build, including standalone output
 npm start              # serve the production build with Next
 
-npm run desktop:dev    # Next dev + Electron pointed at localhost:3000
+npm run desktop:dev    # authenticated local server + Electron
 ```
 
 No API key is required just to start the UI. Configure a provider/connection and the strong, cheap and vision model slots in Settings before model-driven use. There are no factory model choices. OpenRouter is one supported API provider, **not a required gateway for all calls**. Existing sessions keep their explicit conversation model; background roles use their own settings resolution.
@@ -37,7 +37,7 @@ Secrets and machine-specific paths may be supplied through the process environme
 | `LH_DATA_DIR` | Relocates mutable chats, jobs, graph, settings and prompt overrides; default is repo `data/`. |
 | `LH_AUTH_FILE` | Relocates the API-key/custom-endpoint credential file; default is repo-root `auth.json`, separate from `data/`. |
 
-The packaged desktop host sets its own data/auth locations under Electron `userData`; it does not use the repository's development profile. Auth files are owner-only plaintext, not an encrypted vault. Keep `.env.local`, auth/connection files and learning data out of commits and build artifacts. Do not copy a personal profile into fixtures or a reproduction workspace.
+The packaged desktop host sets its own data/auth locations under Electron `userData`; it does not use the repository's development profile. Auth files are encrypted using a macOS Keychain wrapping key in this hardened branch; unsupported OS backends fail closed. See [security hardening](security-hardening.md). Keep `.env.local`, auth/connection files and learning data out of commits and build artifacts. Do not copy a personal profile into fixtures or a reproduction workspace.
 
 Provider-specific references:
 
@@ -53,7 +53,9 @@ Web/dev stores `chatgpt-credentials.json`, `github-copilot-credentials.json` and
 
 Sign-in opens a tab in the browser that initiated it; allow that tab if blocked. **Complete ChatGPT sign-in in a browser on the server's machine**, because the callback listener is `127.0.0.1` on that machine. Copilot/Grok use device codes. The Electron dev shell opens provider pages in the system browser. Credentials/refresh remain server-owned; other browsers connected to the same server share its connections and background-use consent, just as they share its keys and learning data.
 
-This is a **trusted local/shared developer-server mode**, not multi-user hosting. Same-origin JSON/custom-header checks and short-lived, origin-bound, one-use browser-opening actions prevent ordinary cross-origin browser controls. They are **not user authentication or DNS-rebinding protection**. Subscription support does not change Next's listening/LAN behavior. Do not expose the server to untrusted users or the public Internet without an independent access/host gate. Remote ChatGPT callback routing, per-user isolation and credential import are not implemented.
+This hardened branch requires authenticated local access. The launcher binds to 127.0.0.1 and prints a private sign-in link; remote/shared hosting is disabled. See [security hardening](security-hardening.md).
+
+The following describes the upstream connection flow, not an authorization bypass: Same-origin JSON/custom-header checks and short-lived, origin-bound, one-use browser-opening actions prevent ordinary cross-origin browser controls. The local-access guard adds authentication and Host/origin checks; subscription controls do not bypass it. Do not expose the server to untrusted users or the public Internet without an independent access/host gate. Remote ChatGPT callback routing, per-user isolation and credential import are not implemented.
 
 ## Source map
 

@@ -1,3 +1,4 @@
+import { authorizeSourcePath } from "./source-access.ts";
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
@@ -156,7 +157,7 @@ export async function walkFiles(
 		}
 		let entries: import("node:fs").Dirent[];
 		try {
-			entries = await fs.readdir(dir, { withFileTypes: true });
+			entries = await fs.readdir(authorizeSourcePath(dir), { withFileTypes: true });
 		} catch {
 			return false; // unreadable dir (permissions): skip, keep walking
 		}
@@ -170,6 +171,7 @@ export async function walkFiles(
 				return true;
 			}
 			const full = path.join(dir, entry.name);
+			try { authorizeSourcePath(full); } catch { continue; }
 			if (entry.isDirectory()) {
 				if (EXCLUDED_DIR_NAMES.has(entry.name)) continue;
 				if (await walkDir(full)) return true;
@@ -187,7 +189,7 @@ export async function walkFiles(
 
 /** True if the first 8KB chunk contains a NUL byte — pi/rg's binary skip. */
 export async function isBinaryFile(filePath: string): Promise<boolean> {
-	const handle = await fs.open(filePath, "r");
+	const handle = await fs.open(authorizeSourcePath(filePath), "r");
 	try {
 		const buf = Buffer.alloc(8192);
 		const { bytesRead } = await handle.read(buf, 0, 8192, 0);

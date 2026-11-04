@@ -1,3 +1,5 @@
+import { grantFixtureFolders } from "./helpers/grant-fixture-folders.ts";
+import { readSecureText } from "../electron/secure-json.cjs";
 /** Native Pi payloads with synthetic transport and owned scratch files only. */
 import assert from "node:assert/strict";
 import fs from "node:fs";
@@ -10,7 +12,7 @@ import { normalizeContext, fauxAssistantMessage, fauxToolCall, type Message } fr
 const scratch = fs.mkdtempSync(path.join(os.tmpdir(), "lh-custom-lifecycle-"));
 const originalEnv = process.env;
 const originalFetch = globalThis.fetch;
-process.env = { ...(originalEnv.NODE_TEST_CONTEXT ? { NODE_TEST_CONTEXT: originalEnv.NODE_TEST_CONTEXT } : {}), ...(originalEnv.NODE_OPTIONS ? { NODE_OPTIONS: originalEnv.NODE_OPTIONS } : {}), NODE_ENV: "test", HOME: scratch, LH_DATA_DIR: scratch, LH_AUTH_FILE: path.join(scratch, "auth.json"), LH_IGNORE_ENV_KEYS: "1" };
+process.env = { ...(originalEnv.NODE_TEST_CONTEXT ? { NODE_TEST_CONTEXT: originalEnv.NODE_TEST_CONTEXT } : {}), ...(originalEnv.NODE_OPTIONS ? { NODE_OPTIONS: originalEnv.NODE_OPTIONS } : {}), NODE_ENV: "test", HOME: scratch, LH_DATA_DIR: path.join(scratch, "data"), LH_AUTH_FILE: path.join(scratch, "auth.json"), LH_IGNORE_ENV_KEYS: "1" };
 const { writeSettings, readSettings } = await import("../src/store/settings.ts");
 const { piEngineForSpec, piModels } = await import("../src/agent/models.ts");
 await import("../src/server/keys.ts");
@@ -104,6 +106,7 @@ test("actual native encoder preserves USER and tool-result images under missing 
 	assert.deepEqual(piModels().getModel("custom", "m")!.input, ["text"]);
 });
 test("teacher-bound read returns image without contradictory omission note", async () => {
+ await grantFixtureFolders();
 	const file = path.join(scratch, "synthetic.png"); fs.writeFileSync(file, Buffer.from(image.data, "base64"));
 	const engine = piEngineForSpec({ provider: "custom", id: "m" });
 	const result = await createReadTool(engine.model).execute("read-1", { path: file });

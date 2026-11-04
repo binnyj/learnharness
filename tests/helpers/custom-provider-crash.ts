@@ -1,3 +1,4 @@
+import "./vault-fixture.ts";
 /** Child-process fixture: owned profile only; every upstream fetch is synthetic. */
 import fs from "node:fs";
 import { AUTH_FILE, SETTINGS_FILE } from "../../config.ts";

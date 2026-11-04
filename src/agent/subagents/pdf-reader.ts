@@ -1,3 +1,4 @@
+import { authorizeSourcePath } from "../tools/source-access.ts";
 import { randomUUID } from "node:crypto";
 import type { AssistantMessage, Message, ToolResultMessage, Usage, Tool } from "@earendil-works/pi-ai";
 import { normalizeContext } from "@earendil-works/pi-ai";
@@ -169,7 +170,11 @@ export async function runPdfReaderAgent(
 ): Promise<PdfResult> {
 	const headless = opts.headless ?? getHeadless();
 	const maxIterations = opts.maxIterations ?? MAX_ITERATIONS;
-	const pdfPath = resolveSourcePath(input.path);
+	let pdfPath: string;
+	try { pdfPath = authorizeSourcePath(resolveSourcePath(input.path)); } catch (error) {
+		if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+		return { path: resolveSourcePath(input.path), question: input.question, brief: `PDF failed: ${(error as Error).message}`, pagesRead: [], pagesConsulted: [] };
+	}
 
 	// Deterministic upfront failure: unreadable / unparseable
 	// for renders — the brief never starts on a broken source.
@@ -257,6 +262,7 @@ export async function runPdfReaderAgent(
 			for (const call of toolCalls) {
 				const args = (call.arguments ?? {}) as Record<string, unknown>;
 				try {
+					authorizeSourcePath(pdfPath);
 					if (call.name === "pdf_info") {
 						opts.onActivity?.("pdf_info: triaging");
 						const r = await pdfInfoText(pdfPath);

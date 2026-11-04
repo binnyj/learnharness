@@ -1,3 +1,4 @@
+import { readSecureText } from "../electron/secure-json.cjs";
 import assert from "node:assert/strict";
 import test, { after } from "node:test";
 import fs from "node:fs/promises";
@@ -62,7 +63,7 @@ test("web background OFF immediately aborts background streams, retains foregrou
 		const nativeScope = native.subscriptionScope("xai", xaiModel.id); await native.subscriptionLease(nativeScope, false); await assert.rejects(native.subscriptionLease(nativeScope, true));
 		await subscriptionControlsResponse(request({ providerId: "xai", op: "disconnect" }));
 		assert(nativeForeground.controller.signal.aborted); assert(!native.nativeSubscriptionConnected("xai"));
-		assert.deepEqual(JSON.parse(await fs.readFile(path.join(directory, "xai-credentials.json"), "utf8")), { version: 1, allowBackgroundUse: false });
+		assert.deepEqual(JSON.parse(readSecureText(path.join(directory, "xai-credentials.json"))), { version: 1, allowBackgroundUse: false });
 	} finally { foreground.release(); background.release(); nativeForeground.release(); nativeBackground.release(); }
 });
 

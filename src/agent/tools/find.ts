@@ -1,3 +1,4 @@
+import { authorizeSourcePath } from "./source-access.ts";
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import { Type } from "typebox";
@@ -40,7 +41,7 @@ export const findTool: AgentTool<typeof findInput> = {
 	parameters: findInput,
 	execute: serverExecute("find", findInput, async (input, ctx) => {
 		if (ctx?.signal?.aborted) return "Operation aborted";
-		const searchPath = resolveSourcePath(input.path);
+		const searchPath = authorizeSourcePath(resolveSourcePath(input.path));
 		let stat;
 		try {
 			stat = await fs.stat(searchPath);

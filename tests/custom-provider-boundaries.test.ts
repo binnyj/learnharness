@@ -1,3 +1,5 @@
+import { readSecureText } from "../electron/secure-json.cjs";
+import { grantFixtureFolders } from "./helpers/grant-fixture-folders.ts";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
@@ -88,7 +90,7 @@ test("changing destination cannot silently reuse an existing credential", async 
 test("same-URL unbound development key needs existing explicit reuse consent", async () => {
 	seed({ baseUrl: "http://old/v1", authMode: "apiKey", models: [{ id: "m" }] }, "legacy-key");
 	const { CUSTOM_AUTH_BINDING } = await import("../src/core/custom-provider-auth.ts");
-	const file = path.join(scratch, "auth.json"); const map = JSON.parse(fs.readFileSync(file, "utf8")); delete map[CUSTOM_AUTH_BINDING]; fs.writeFileSync(file, JSON.stringify(map));
+	const file = path.join(scratch, "auth.json"); const map = JSON.parse(readSecureText(file)); delete map[CUSTOM_AUTH_BINDING]; fs.writeFileSync(file, JSON.stringify(map));
 	assert.equal((await get().json()).keyReuseRequired, true);
 	assert.equal((await mutate({ baseUrl: "http://old/v1", authMode: "apiKey" })).status, 400); assert.equal(requests.length, 0);
 	assert.equal((await mutate({ baseUrl: "http://old/v1", authMode: "apiKey", reuseKey: true })).status, 200);
@@ -215,3 +217,6 @@ test("settings-write failure restores previous key/config and reports failure", 
 	assert.equal(res.status, 500); assert.ok(!(await res.text()).includes("private-io-details"));
 	assert.equal(keys.keyValue(CUSTOM_PROVIDER.envVar), "old-key"); assert.deepEqual(current(), before);
 });
+
+import { before as beforeSecurityFixtures } from "node:test";
+beforeSecurityFixtures(async () => { await grantFixtureFolders(); });

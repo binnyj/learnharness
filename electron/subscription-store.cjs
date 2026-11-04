@@ -1,4 +1,5 @@
 "use strict";
+const { readSecureText, writeSecureText } = require("./secure-json.cjs");
 const fs = require("node:fs/promises");
 const path = require("node:path");
 const { randomUUID } = require("node:crypto");
@@ -38,12 +39,13 @@ function fileStore(file, providerId, io = fs) {
 			try {
 				const stat = await io.lstat(file);
 				if (!stat.isFile() || (process.platform !== "win32" && ((stat.mode & 0o077) !== 0 || (typeof process.getuid === "function" && stat.uid !== process.getuid())))) throw failure("storage");
-				return validateState(providerId, JSON.parse(await io.readFile(file, "utf8")));
+				return validateState(providerId, JSON.parse(io === fs ? readSecureText(file, text => validateState(providerId, JSON.parse(text))) : await io.readFile(file, "utf8")));
 			}
 			catch (error) { if (error.code === "ENOENT") return { version: 1, allowBackgroundUse: true }; throw failure("storage"); }
 		},
 		async write(state) {
 			validateState(providerId, state);
+			if (io === fs) { writeSecureText(file, JSON.stringify(state)); return; }
 			const temporary = `${file}.${randomUUID()}.tmp`;
 			let handle;
 			try {

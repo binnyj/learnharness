@@ -1,3 +1,4 @@
+import "./helpers/security-fixture.ts";
 /**
  * The AuthStore fs adapter (auth-keys wave, 2026-09-19) — flat {VAR: value}
  * map at config.AUTH_FILE. THIS FILE is the sole owner of its auth file:
@@ -57,6 +58,7 @@ describe("AuthStore adapter", () => {
 	it("corrupt/non-object file = {} — never throws, looks like first boot", () => {
 		fs.writeFileSync(AUTH_FILE, "{not json");
 		assert.deepEqual(authStore.authVars(), {});
+		assert.throws(() => authStore.setAuthVar("OPENROUTER_API_KEY", "must-not-overwrite"), /corrupt/);
 		fs.writeFileSync(AUTH_FILE, JSON.stringify(["an", "array"]));
 		assert.deepEqual(authStore.authVars(), {});
 		fs.writeFileSync(AUTH_FILE, JSON.stringify({ OK: "fine", bad: 42 }));

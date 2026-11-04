@@ -7,13 +7,15 @@ import { InvertDiscIcon } from "@/components/artifacts/invert-disc";
 import { ChatActionsContext } from "@/components/chat";
 import { downloadFile, slugFilename } from "@/components/artifacts/download";
 import { DispatchCard } from "@/components/artifacts/dispatch-card";
+import { restrictDemoHtml } from "@/src/core";
 import type { ArtifactPartProps, DemoResult } from "@/src/core";
 
 /**
  * Demo artifact card (W6): while the part is input-available, a job activity
  * card (the chat view's jobs feed — the job-card idiom); when output-available, the demo
- * runs in a SANDBOXED iframe (sandbox="allow-scripts", no allow-same-origin →
- * no access to app storage/cookies/DOM).
+ * renders as a static sandboxed iframe until the learner presses Run demo,
+ * then runs with sandbox="allow-scripts" (no allow-same-origin → no access
+ * to app storage/cookies/DOM; CSP + frame-src 'none' block the network).
  *
  * The bridge script (contracts.ts "Demo iframe bridge") is auto-injected into
  * every demo by buildDemoSrcDoc — never the model's job: ResizeObserver →
@@ -48,6 +50,7 @@ setTimeout(post,400);
 
 /** Inject the bridge before </body> (or at the end of a body-less document). */
 export function buildDemoSrcDoc(html: string): string {
+	html = restrictDemoHtml(html);
 	if (/<\/body>/i.test(html)) return html.replace(/<\/body>/i, `${DEMO_BRIDGE_SCRIPT}</body>`);
 	return `${html}${DEMO_BRIDGE_SCRIPT}`;
 }
@@ -157,6 +160,16 @@ function DemoFrame({
 		}).catch(() => {});
 	};
 	const srcDoc = useMemo(() => buildDemoSrcDoc(html), [html]);
+	// Click-to-run (owner, 2026-11-03): scripts stay off until the learner
+	// runs the demo, so scrolling back through old chats never executes
+	// generated code. Network/navigation are blocked by the demo CSP plus the
+	// app's frame-src 'none' (proxy.ts). A looping demo can still freeze the
+	// tab in browser mode — reload recovers.
+	const [running, setRunning] = useState(false);
+	const toggleRunning = () => {
+		setRunning((prev) => !prev);
+		setState(INITIAL_DEMO_BRIDGE_STATE);
+	};
 
 	useEffect(() => {
 		const onMessage = (event: MessageEvent) => {
@@ -182,6 +195,14 @@ function DemoFrame({
 					<span className="truncate text-xs font-medium tracking-wide text-foreground">{title}</span>
 				</div>
 				<div className="flex shrink-0 items-center gap-1.5">
+					<button
+						type="button"
+						onClick={toggleRunning}
+						data-testid="demo-run"
+						className="rounded-md border px-2 py-1 text-xs font-medium transition-colors hover:bg-accent hover:text-foreground"
+					>
+						{running ? "Stop" : "Run demo"}
+					</button>
 					<Toggle
 						checked={inverted}
 						onChange={toggleInverted}
@@ -208,12 +229,22 @@ function DemoFrame({
 					onSend={actions ? () => actions.sendText(`The demo "${title}" threw an error: ${state.error}`) : undefined}
 				/>
 			)}
+			{!running && (
+				<p className="mt-2 text-xs text-muted-foreground" data-testid="demo-static-note">
+					Static preview. Press Run demo to start it; it runs offline with no network access.
+				</p>
+			)}
 			<iframe
+				// A changed sandbox attribute only applies on the next load, so
+				// the key forces a fresh frame on every Run/Stop.
+				key={running ? "running" : "static"}
 				ref={iframeRef}
 				title={title}
-				// allow-scripts ONLY — no allow-same-origin: the demo can run code
-				// but never touch the app's storage, cookies, or DOM.
-				sandbox="allow-scripts"
+				// allow-scripts ONLY while running — never allow-same-origin, so
+				// the demo can never touch the app's storage, cookies, or DOM.
+				sandbox={running ? "allow-scripts" : ""}
+				inert={!running}
+				tabIndex={running ? undefined : -1}
 				srcDoc={srcDoc}
 				// scrolling OFF (owner, 2026-10-07): the bridge auto-sizes the
 				// iframe to its content, so an internal scrollbar can only appear
