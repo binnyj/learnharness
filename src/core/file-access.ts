@@ -1,5 +1,6 @@
-/** Non-secret, user-wide learner-source preferences. Absence means OFF;
- * an explicitly restricted empty list means no learner-source access. */
+/** Non-secret, user-wide learner-source preferences. Absence means
+ * RESTRICTED (owner, 2026-11-04): only an explicit `restricted: false`
+ * opens broad access; a restricted empty list means no learner-source access. */
 export interface FileAccessSettings {
 	restricted: boolean;
 	folders: string[];
@@ -37,5 +38,5 @@ export function parseFileAccessSettings(raw: unknown): FileAccessSettingsResult 
 		const folder = entry.trim();
 		if (!folders.includes(folder)) folders.push(folder);
 	}
-	return { ok: true, settings: { restricted: value.restricted === true, folders } };
+	return { ok: true, settings: { restricted: value.restricted !== false, folders } };
 }

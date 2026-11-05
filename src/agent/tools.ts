@@ -11,6 +11,9 @@ import {
 	probeQuizInputSchema,
 	quizInputObject,
 	quizInputProblems,
+	codeInputBase,
+	codeInputObject,
+	codeInputProblems,
 } from "../core/question-core.ts";
 import { filterEnabledTools, type EnabledTools } from "../core/pending.ts";
 import type { JobRecord } from "../core/contracts.ts";
@@ -261,6 +264,62 @@ export const probeExplainTool: AgentTool<typeof explainInputBase> = {
 	},
 };
 
+/** The code tools' mechanics (Phase 2, owner 2026-11-03): explain's
+ *  commitment rule with an editor instead of a text box. The doctrine (when
+ *  to ask for code) lives in the shared question-tools prompt chunk. */
+function codeDescription(name: "code" | "probe_code", nodeId: boolean): string {
+	return (
+		"Ask the learner to WRITE code in an editor — a graded check whose answer is code. He edits the contents of " +
+		"the files you give (he cannot add, rename or delete files); with run true he can run them in a sandbox and " +
+		"you receive the run's status, console output and errors with his files. THE COMMITMENT RULE: `solution` is " +
+		"your full solution code plus reasoning, COMMITTED before he sees the question; grade his code against it by " +
+		"behavior and by the step (different code can be right), never revising it after seeing his code. He sees the " +
+		"solution on submit. No network: only react, react-dom and vue can be imported, plus his files. " +
+		(nodeId
+			? "Set `nodeId` (required) to the plan node this question is about — validated at call time against the session's plan map. "
+			: "") +
+		"ONE question per turn: call a single " + name + ", then end your turn — his answer determines the next."
+	);
+}
+
+/** The teacher's code question (nodeId-validated; available under either
+ *  quizzing mechanic). */
+export function teachCodeToolFor(
+	ctx: Pick<PlanToolContext, "chatId" | "chatStore">,
+): AgentTool<typeof codeInputObject> {
+	return {
+		name: "code",
+		label: "code",
+		description: codeDescription("code", true),
+		parameters: codeInputObject,
+		prepareArguments: prepareQuestionArguments,
+		executionMode: "sequential",
+		execute: async (_toolCallId, input) => {
+			const problems = [...codeInputProblems(input)];
+			const nodeIdProblemText = nodeIdProblem(ctx, input.nodeId);
+			if (nodeIdProblemText) problems.push(nodeIdProblemText);
+			if (problems.length > 0) return invalidInputResult("code", problems);
+			return questionResult();
+		},
+	};
+}
+
+/** The prober's code question — named `probe_code` for the same
+ *  phase-boundary reason as probe/recall (no type, no nodeId). */
+export const probeCodeTool: AgentTool<typeof codeInputBase> = {
+	name: "probe_code",
+	label: "probe_code",
+	description: codeDescription("probe_code", false),
+	parameters: codeInputBase,
+	prepareArguments: prepareQuestionArguments,
+	executionMode: "sequential",
+	execute: async (_toolCallId, input) => {
+		const problems = codeInputProblems(input);
+		if (problems.length > 0) return invalidInputResult("probe_code", problems);
+		return questionResult();
+	},
+};
+
 /** The prober's registry context: the probe's own needs (probe_done —
  *  ProbeDoneContext) PLUS the job-dispatch wiring, since the owner ruling
  *  (2026-09-20) puts research + pdf in the probe phase's registry too. */
@@ -319,6 +378,9 @@ export function createProberTools(
 		...filterEnabledTools(
 			{
 				...quizzing,
+				// Code answers (owner 2026-11-03): always available, whichever
+				// quizzing mechanic is armed — a write goal is measured by writing.
+				probe_code: probeCodeTool,
 				ask_user_question: askUserQuestionTool,
 				// The learner-filesystem set is always-on (user-decided 2026-09,
 				// sources v1): the prober inspects and LOCATES learner-referenced
@@ -449,6 +511,8 @@ export function createTeacherTools(
 		filterEnabledTools(
 			{
 			...quizzing,
+			// Code answers (owner 2026-11-03): available under either mechanic.
+			code: teachCodeToolFor(ctx),
 			ask_user_question: askUserQuestionTool,
 			// The learner-filesystem set is always-on (user-decided 2026-09,
 			// sources v1): the teacher locates and reads learner-referenced

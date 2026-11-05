@@ -1,3 +1,5 @@
+import "./helpers/security-fixture.ts";
+import { grantFixtureFolders } from "./helpers/grant-fixture-folders.ts";
 /**
  * The pdf-reader sub-agent (sources v0) — the hand-rolled loop on a faux
  * engine: triage→extract→brief flow, the unread-finish doctrine gate, the
@@ -100,12 +102,12 @@ describe("pdf-reader source paths", () => {
 				{ path: inputPath, question: "Read the document" },
 				{ engine, headless },
 			);
-			assert.equal(result.path, absolutePath);
+			assert.equal(result.path, fs.realpathSync(absolutePath));
 			assert.match(result.brief, /^Read the requested document/);
 			assert.match(lastContext, /Pages: 3/, "metadata opened the home-anchored PDF");
 			assert.deepEqual(result.pagesRead, [2, 3]);
 			assert.deepEqual(result.pagesConsulted, [1, 2, 3], "search and extraction opened the home-anchored PDF");
-			assert.deepEqual(headless.paths, [absolutePath]);
+			assert.deepEqual(headless.paths, [fs.realpathSync(absolutePath)]);
 		});
 	}
 
@@ -236,3 +238,5 @@ describe("pdf-reader loop (faux engine)", () => {
 		assert.deepEqual(result.pagesConsulted, []);
 	});
 });
+import { before as beforeSecurityFixtures } from "node:test";
+beforeSecurityFixtures(async () => { await grantFixtureFolders(); });

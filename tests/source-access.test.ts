@@ -101,7 +101,7 @@ describe("source access: configured credentials only", () => {
 
 	it("still reads app learning records, ordinary files and non-managed lookalikes", async () => {
 		assert.match(await text(readTool, { path: path.join(data, "chats", "session.json") }), /synthetic learning conversation/);
-		for (const file of ["home/notes/topic.md", "home/..notes/also.md", "home/.claudette/ok.md", "unrelated/.ssh/notes.md", "keyfiles/custom-keys.json.backup-not-managed", `keyfiles/other.json.tmp-${uuid}`, "keyfiles/custom-keys.json.tmp-not-a-uuid", `unrelated/custom-keys.json.tmp-${uuid}`, "private/logs/main.log"]) {
+		for (const file of ["home/notes/topic.md", "home/..notes/also.md", "home/.claudette/ok.md", "keyfiles/custom-keys.json.backup-not-managed", `keyfiles/other.json.tmp-${uuid}`, "keyfiles/custom-keys.json.tmp-not-a-uuid", `unrelated/custom-keys.json.tmp-${uuid}`, "private/logs/main.log"]) {
 			assert.match(await text(readTool, { path: path.join(root, file) }), /ordinary/);
 		}
 		assert.match(await text(lsTool, { path: path.dirname(auth) }), /chatgpt-credentials\.json/);
@@ -127,7 +127,11 @@ describe("source access: configured credentials only", () => {
 	});
 
 	it("does not confuse an allowed credential-directory sibling with the credential directory", () => {
-		assert.equal(isSensitivePath(path.join(root, "private-sibling", "chatgpt-credentials.json")), false);
+		// Credential NAMES are refused anywhere (owner, 2026-11-04), so a lookalike
+		// sibling file is blocked too; an ordinary sibling path is not.
+		assert.equal(isSensitivePath(path.join(root, "private-sibling", "chatgpt-credentials.json")), true);
+		assert.equal(isSensitivePath(path.join(root, "private-sibling", "notes.md")), false);
+		assert.equal(isSensitivePath(path.join(root, "unrelated", ".ssh", "notes.md")), true, ".ssh folders are refused anywhere");
 		assert.equal(isSensitivePath(path.join(root, "..ordinary", "notes.md")), false);
 	});
 });

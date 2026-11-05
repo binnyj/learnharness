@@ -1,3 +1,4 @@
+import "./helpers/security-fixture.ts";
 import assert from "node:assert";
 import * as fs from "node:fs/promises";
 import { realpathSync } from "node:fs";
@@ -231,7 +232,8 @@ describe("sensitive locations under home are off-limits", () => {
 		assert.equal(isSensitivePath(path.join(home, "notes", "claude.md"), home), false);
 		assert.equal(isSensitivePath(path.join(home, ".config", "nvim", "init.lua"), home), false);
 		assert.equal(isSensitivePath(path.join(home, "notes", "environment.md"), home), false);
-		assert.equal(isSensitivePath(path.join(os.tmpdir(), ".ssh", "id_rsa"), home), false);
+		// Key and credential NAMES are refused anywhere (owner, 2026-11-04), not only at home.
+		assert.equal(isSensitivePath(path.join(os.tmpdir(), ".ssh", "id_rsa"), home), true);
 	});
 
 	it("walkFiles never enters them", async () => {
@@ -293,7 +295,7 @@ describe("ls (pi port)", () => {
 	});
 
 	it("missing path and non-directory throw (the model sees the error)", async () => {
-		await assert.rejects(async () => lsTool.execute!("c", { path: "/nonexistent/xyz" }), /Path not found/);
+		await assert.rejects(async () => lsTool.execute!("c", { path: "/nonexistent/xyz" }), /Path not found|ENOENT/);
 		await assert.rejects(
 			async () => lsTool.execute!("c", { path: path.join(FIXTURE, "binary.bin") }),
 			/Not a directory/,

@@ -46,14 +46,14 @@ test("desktop capability injects only trusted app mainframe exact-origin API req
 });
 
 test("all methods fail closed for desktop missing/wrong secret; API-only matcher covers SSE/settings/spending", () => {
-	assert(desktopAPIAuthorized(new Headers(), {}), "browser-only API-key mode unchanged");
+	assert(!desktopAPIAuthorized(new Headers(), {}), "browser mode needs its separate authenticated session");
 	assert(!desktopAPIAuthorized(new Headers({ [HEADER]: secret }), { LH_DESKTOP_SERVER: "1" }), "missing server secret must not disable authorization");
 	for (const value of [undefined, "", "wrong", secret + ", " + secret]) {
 		assert(!desktopAPIAuthorized(new Headers(value === undefined ? {} : { [HEADER]: value }), { LH_DESKTOP_SERVER: "1", LH_DESKTOP_API_SECRET: secret }));
 	}
 	assert(desktopAPIAuthorized(new Headers({ [HEADER]: secret }), { LH_DESKTOP_SERVER: "1", LH_DESKTOP_API_SECRET: secret }));
 	for (const pathname of ["/api/events", "/api/chat", "/api/settings/models", "/api/chats/scratch/markdown"]) assert(unstable_doesProxyMatch({ config, nextConfig: {}, url: origin + pathname }));
-	assert(!unstable_doesProxyMatch({ config, nextConfig: {}, url: origin + "/chat/new" }));
+	assert(unstable_doesProxyMatch({ config, nextConfig: {}, url: origin + "/chat/new" }));
 	const originalMarker = process.env.LH_DESKTOP_SERVER;
 	const originalSecret = process.env.LH_DESKTOP_API_SECRET;
 	try {

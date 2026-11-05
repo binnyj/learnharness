@@ -7,7 +7,7 @@ export function desktopAPIAuthorized(
 	env: Record<string, string | undefined> = process.env,
 ): boolean {
 	const expected = env.LH_DESKTOP_API_SECRET;
-	if (env.LH_DESKTOP_SERVER !== "1" && !expected) return true;
+	if (env.LH_DESKTOP_SERVER !== "1" && !expected) return false;
 	if (!expected || expected.length < 64) return false;
 	const supplied = headers.get("x-learnharness-desktop");
 	if (!supplied) return false;

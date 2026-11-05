@@ -1,3 +1,4 @@
+import "./helpers/security-fixture.ts";
 /**
  * The read tool (sources v0) — a Node port of pi's read semantics:
  * truncation with continuation offsets, image mime detection, error paths.
@@ -45,12 +46,16 @@ describe("read tool — text semantics", () => {
 		// work from a bare relative path, so the home directory is the anchor
 		// (fs-shared resolveSourcePath). Scratch file in home, cleaned up.
 		const rel = `lh-read-rel-test-${process.pid}.txt`;
-		const homeFile = path.join(os.homedir(), rel);
+		const previousHome = process.env.HOME;
+		const fakeHome = fs.mkdtempSync(path.join(os.tmpdir(), "lh-test-home-"));
+		process.env.HOME = fakeHome;
+		const homeFile = path.join(fakeHome, rel);
 		fs.writeFileSync(homeFile, "rel", "utf-8");
 		try {
 			assert.equal((await run({ path: rel })).text, "rel");
 		} finally {
-			fs.unlinkSync(homeFile);
+			fs.rmSync(fakeHome, { recursive: true, force: true });
+			if (previousHome === undefined) delete process.env.HOME; else process.env.HOME = previousHome;
 		}
 	});
 

@@ -14,8 +14,13 @@ import { jobTools } from "../src/agent/tools/jobs.ts";
 import { GET } from "../app/api/chats/[id]/images/[snapshotId]/route.ts";
 import type { JobRecord, ShowImageDetails } from "../src/core/contracts.ts";
 import type { JobStore } from "../src/core/ports.ts";
+import { setFileAccessPolicy } from "../src/agent/tools/file-access.ts";
 
 const scratch = await fs.mkdtemp(path.join(os.tmpdir(), "lh-image-snapshots-"));
+// File access is restricted by default (owner, 2026-11-04): these tests are
+// about snapshots, so approve just their scratch folder.
+const approved = await fs.realpath(scratch);
+setFileAccessPolicy(() => ({ restricted: true, folders: [approved] }));
 const chats: string[] = [];
 after(async () => {
 	for (const id of chats) chatStore.deleteChat(id);

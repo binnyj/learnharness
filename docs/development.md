@@ -8,8 +8,8 @@ CI and release builds use **Node 26**. Use the lockfile and a compatible native 
 
 ```sh
 npm ci
-npm run dev            # normally http://localhost:3000
-npm run desktop:dev    # Next dev + Electron on localhost:3000
+npm run dev            # loopback only (127.0.0.1); open the private sign-in link it prints
+npm run desktop:dev    # the same authenticated local server + Electron
 ```
 
 No key is needed to open the UI. Configure connections and the Strong/Cheap/Vision slots before model-driven use; there are no factory model selections. OpenRouter is supported, not mandatory.
@@ -34,7 +34,7 @@ Nonsecret settings are deltas in `<data root>/settings.json`; absent values reso
 | `DEEPGRAM_API_KEY` | Optional dictation token minting. |
 | `CHROME_PATH` | Chrome/Chromium executable fallback for demo verification; Electron's browser helper is primary. No extra Chromium is downloaded. |
 
-Ordinary Next development can read `.env.local`. Real environment keys take precedence over saved keys. Saved auth is restrictive-permission plaintext, not an encrypted vault. Packaged Electron sets separate data/auth locations under `userData`; it does not use the repo development profile.
+Ordinary Next development can read `.env.local`. Real environment keys take precedence over saved keys. Saved auth and subscription files are encrypted with a macOS Keychain wrapping key; unsupported OS backends fail closed (see [security hardening](security-hardening.md)). Packaged Electron sets separate data/auth locations under `userData`; it does not use the repo development profile.
 
 Provider-specific setup and limitations: [Claude Code](claude-code.md), [custom endpoints](custom-providers.md), [context/cost accounting](compaction-accounting.md).
 
@@ -46,7 +46,7 @@ Web/dev writes `chatgpt-credentials.json`, `github-copilot-credentials.json`, an
 
 ChatGPT's callback listener is `127.0.0.1` on the **server's machine**; complete sign-in in a browser there. Copilot/Grok use device codes. Allow the initiating browser's sign-in tab if blocked; Electron dev opens provider pages in the system browser. Connected browsers share server credentials, background-use consent, keys, and learning data.
 
-This is **trusted local/shared development**, not multi-user hosting. Same-origin JSON/custom-header checks and short-lived, origin-bound, one-use browser-opening actions are not user authentication or DNS-rebinding protection. Do not expose the server to untrusted users/public Internet without an independent access/host gate. Per-user isolation, remote ChatGPT callback routing, and credential import are not implemented.
+This is **trusted local, single-user development**, not multi-user hosting. The launcher binds to `127.0.0.1` and prints a private sign-in link; every API route and page requires that session, with Host/origin checks (see [security hardening](security-hardening.md)). Same-origin JSON/custom-header checks and short-lived, origin-bound, one-use browser-opening actions remain in place and do not bypass that sign-in. Do not expose the server to untrusted users/public Internet. Per-user isolation, remote ChatGPT callback routing, and credential import are not implemented.
 
 ## Safe local work
 

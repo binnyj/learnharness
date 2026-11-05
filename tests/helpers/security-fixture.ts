@@ -1,0 +1,10 @@
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { after } from "node:test";
+import { setTestKey } from "../../electron/secure-json.cjs";
+const securityDir = fs.mkdtempSync(path.join(os.tmpdir(), "lh-security-settings-"));
+process.env.LH_DATA_DIR = securityDir;
+fs.writeFileSync(path.join(securityDir, "settings.json"), JSON.stringify({ version: 1, security: { learningFolders: [fs.realpathSync(os.tmpdir())] } }));
+setTestKey(Buffer.alloc(32, 7));
+after(() => fs.rmSync(securityDir, { recursive: true, force: true }));

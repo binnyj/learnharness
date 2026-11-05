@@ -205,6 +205,11 @@ export const HANDOFF_TEXT =
  *  not declared by a button. */
 export const THINKING_LABEL = "Your thinking";
 
+/** The model-facing label of a practice code submission (Phase 2, owner
+ *  2026-11-03): the files and last run follow it; any thinking follows
+ *  under THINKING_LABEL. */
+export const CODE_LABEL = "Your code";
+
 /** The conclude tool's ack — shared by the executed call (agent layer) and
  *  the dismissal-synthesized pair (input-events), so a concluded problem
  *  reads identically to the model however it concluded. Owner round 16:

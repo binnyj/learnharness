@@ -89,3 +89,10 @@ export * from "./coverage.ts";
 // ONE session→markdown formatter — the extractor's view and the user-facing
 // export share it. Pure, browser-safe.
 export * from "./session-markdown.ts";
+
+export { restrictDemoHtml } from "./demo-security.ts";
+
+// Code answers (Phase 2): the shared, browser-safe contract.
+export * from "./code-answer.ts";
+
+export * from "./code-runtime.ts";

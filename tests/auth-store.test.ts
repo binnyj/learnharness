@@ -1,3 +1,4 @@
+import "./helpers/security-fixture.ts";
 /**
  * The AuthStore fs adapter (auth-keys wave, 2026-09-19) — flat {VAR: value}
  * map at config.AUTH_FILE. THIS FILE is the sole owner of its auth file:
@@ -58,6 +59,7 @@ describe("AuthStore adapter", () => {
 	it("corrupt/non-object file = {} — never throws, looks like first boot", () => {
 		fs.writeFileSync(AUTH_FILE, "{not json");
 		assert.deepEqual(authStore.authVars(), {});
+		assert.throws(() => authStore.setAuthVar("OPENROUTER_API_KEY", "must-not-overwrite"), /corrupt/);
 		fs.writeFileSync(AUTH_FILE, JSON.stringify(["an", "array"]));
 		assert.deepEqual(authStore.authVars(), {});
 		fs.writeFileSync(AUTH_FILE, JSON.stringify({ OK: "fine", bad: 42 }));
@@ -78,8 +80,12 @@ describe("AuthStore adapter", () => {
 		t.mock.method(fs, "renameSync", (...[tmp, destination]: Parameters<typeof rename>) => {
 			assert.equal(destination, AUTH_FILE);
 			const name = String(tmp);
-			assert.match(name, /auth\.json\.tmp-[0-9a-f-]{36}$/);
-			assert.equal(JSON.parse(fs.readFileSync(tmp, "utf8")).TEMP_CONTRACT, "synthetic-key");
+			// The encrypted writer (electron/secure-json.cjs) stages <file>.<uuid>.tmp,
+			// already encrypted — the plaintext key never touches the disk.
+			assert.match(name, /auth\.json\.[0-9a-f-]{36}\.tmp$/);
+			const staged = fs.readFileSync(tmp, "utf8");
+			assert.equal(JSON.parse(staged).format, "learnharness-encrypted-v1");
+			assert.ok(!staged.includes("synthetic-key"));
 			if (process.platform !== "win32") assert.equal(fs.statSync(tmp).mode & 0o777, 0o600);
 			assert.equal(isSensitivePath(name), true);
 			assert.throws(() => resolveSourcePath(name), /Access denied/);
@@ -90,7 +96,7 @@ describe("AuthStore adapter", () => {
 		assert.equal(observed, true);
 	});
 
-	it("auth replaces a symlink with a 0600 record without modifying its referent", (t) => {
+	it("auth refuses to write through a symlink and leaves its referent untouched", (t) => {
 		const referent = path.join(TMP, "referent.json");
 		const original = JSON.stringify({ KEEP: "original" });
 		fs.writeFileSync(referent, original);
@@ -101,17 +107,19 @@ describe("AuthStore adapter", () => {
 			t.skip("symlinks need extra rights on this machine");
 			return;
 		}
-		authStore.setAuthVar("NEW", "synthetic");
-		assert.ok(fs.lstatSync(AUTH_FILE).isFile());
-		assert.deepEqual(authStore.authVars(), { KEEP: "original", NEW: "synthetic" });
+		// The encrypted store fails closed on an unsafe credential file (a link
+		// could point anywhere) instead of replacing it.
+		assert.throws(() => authStore.setAuthVar("NEW", "synthetic"), /Credential storage unavailable/);
 		assert.equal(fs.readFileSync(referent, "utf8"), original);
-		if (process.platform !== "win32") assert.equal(fs.statSync(AUTH_FILE).mode & 0o777, 0o600);
+		assert.ok(fs.lstatSync(AUTH_FILE).isSymbolicLink(), "the link itself is not replaced");
+		fs.unlinkSync(AUTH_FILE);
+		authStore.setAuthVar("KEEP", "original");
 	});
 
 	it("atomic writes: no tmp leftovers, valid JSON on disk every time", () => {
 		authStore.setAuthVar("OPENROUTER_API_KEY", "sk-or-v1-final");
-		const files = fs.readdirSync(TMP).filter((f) => f.includes(".tmp-"));
+		const files = fs.readdirSync(TMP).filter((f) => f.includes(".tmp-") || f.endsWith(".tmp"));
 		assert.deepEqual(files, [], "no tmp file survives the rename");
-		JSON.parse(fs.readFileSync(AUTH_FILE, "utf-8")); // must parse
+		assert.equal(JSON.parse(fs.readFileSync(AUTH_FILE, "utf-8")).format, "learnharness-encrypted-v1"); // a whole, encrypted record
 	});
 });

@@ -24,6 +24,9 @@ import {
 	newNextMessage,
 	newProblemDismissedMarker,
 	newThinkingMessage,
+	newCodeSubmissionMessage,
+	activeProblemOf,
+	isCodeLanguage,
 	newUserMessage,
 	projectView,
 	type ChatInput,
@@ -703,6 +706,13 @@ export class SessionModel {
 			// optimistically — the card renders from its details the
 			// moment the button fires.
 			optimistic.push({ ...newThinkingMessage(input.problemCallId, input.text), id: localId() });
+		} else if (input.type === "code") {
+			// Practice code submissions (Phase 2): the same marker family,
+			// carrying the files + run. The language is read back from the
+			// active problem so the optimistic copy matches the server's.
+			const active = activeProblemOf([...this.base, ...this.tail]);
+			const language = (active?.input as { code?: { language?: unknown } } | null)?.code?.language;
+			if (isCodeLanguage(language)) optimistic.push({ ...newCodeSubmissionMessage(input.problemCallId, { language, files: input.files, ...(input.run ? { run: input.run } : {}) }, input.text), id: localId() });
 		} else if (input.type === "next") {
 			// The move-on signal (owner round 16): the NEXT PROBLEM line
 			// renders the instant the chip/Enter fires.

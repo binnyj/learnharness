@@ -99,8 +99,47 @@ function isCredentialTemp(absolute: string, directory: string, authBasename: str
 	if (path.relative(comparisonPath(directory), path.dirname(file)) !== "") return false;
 	const name = path.basename(file);
 	const prefix = `${authBasename}.tmp-`;
-	return CREDENTIAL_TEMP.test(name) ||
+	// The encrypted credential writer (electron/secure-json.cjs) stages
+	// `<file>.<uuid>.tmp` beside the record.
+	const staged = name.toLowerCase().startsWith(`${authBasename.toLowerCase()}.`) && name.toLowerCase().endsWith(".tmp") &&
+		ATOMIC_TEMP_UUID.test(name.slice(authBasename.length + 1, -4));
+	return CREDENTIAL_TEMP.test(name) || staged ||
 		(name.toLowerCase().startsWith(prefix.toLowerCase()) && ATOMIC_TEMP_UUID.test(name.slice(prefix.length)));
+}
+
+/** Extra protections kept from the local Phase 1 hardening (owner, merge
+ *  2026-11-04): secrets are refused by NAME anywhere — inside an allowed
+ *  folder too — not only at their home locations. A PEM `.key` is refused
+ *  by content (Keynote decks share the extension). */
+const SENSITIVE_NAME = /^(?:\.[a-z0-9_]*history|fish_history|\.pgpass|\.netrc|\.npmrc|auth\.json(?:\..*)?|.*credentials.*|.*secret.*|.*token.*|service-account.*\.json|.*\.(?:pem|p12|pfx)|id_(?:rsa|ed25519|ecdsa)(?:\..*)?)$/i;
+const SENSITIVE_SEGMENTS = new Set([".ssh", ".aws", ".gnupg", ".kube", ".docker", ".gcloud", ".azure"]);
+export const MAX_SOURCE_FILE_BYTES = 25 * 1024 * 1024;
+
+function hasSensitiveName(absolute: string): boolean {
+	const file = comparisonPath(absolute);
+	return SENSITIVE_NAME.test(path.basename(file)) || file.split(/[\\/]/).some((segment) => SENSITIVE_SEGMENTS.has(segment.toLowerCase()));
+}
+
+/** File-level refusals that need a stat: hard links (a second name for a
+ *  file that may live outside the allowed folders), the size ceiling, and
+ *  PEM-encoded `.key` files. Null when the file is fine or not a file. */
+export function sourceFileProblem(absolute: string): string | null {
+	let stat: fsSync.Stats;
+	try { stat = fsSync.statSync(/* turbopackIgnore: true */ absolute); } catch { return null; }
+	if (!stat.isFile()) return null;
+	if (stat.nlink > 1) return "hard-linked files are not supported";
+	if (stat.size > MAX_SOURCE_FILE_BYTES) return "files must be at most 25 MiB";
+	if (path.extname(absolute).toLowerCase() === ".key") {
+		let fd: number | undefined;
+		try {
+			fd = fsSync.openSync(/* turbopackIgnore: true */ absolute, "r");
+			const head = Buffer.alloc(64);
+			const n = fsSync.readSync(fd, head, 0, 64, 0);
+			if (head.subarray(0, n).toString("utf8").trimStart().startsWith("-----BEGIN")) return "protected location";
+		} catch { return "protected location"; }
+		finally { if (fd !== undefined) fsSync.closeSync(fd); }
+	}
+	return null;
 }
 
 /** String-only check, also usable with synthetic home/credential locations.
@@ -108,7 +147,7 @@ function isCredentialTemp(absolute: string, directory: string, authBasename: str
  *  Only credentials are app-private denials: learning data remains readable. */
 export function isSensitivePath(absolute: string, home: string = os.homedir(), authFile: string = AUTH_FILE): boolean {
 	const file = comparisonPath(absolute);
-	return ENV_FILE.test(path.basename(file)) ||
+	return ENV_FILE.test(path.basename(file)) || hasSensitiveName(file) ||
 		SENSITIVE_HOME_PATHS.some((p) => isWithin(file, path.join(home, p), true)) ||
 		credentialFiles(authFile).some((p) => isWithin(file, p)) ||
 		isCredentialTemp(file, path.dirname(authFile), path.basename(comparisonPath(authFile)));
@@ -173,6 +212,8 @@ function checkedSourcePath(absolute: string, denied: (absolute: string) => boole
 	if (denied(absolute)) refuse();
 	const real = realOrMissing(absolute);
 	if (denied(real)) refuse();
+	const problem = sourceFileProblem(real);
+	if (problem) throw new Error(`Access denied: ${absolute} — ${problem}.`);
 	return real;
 }
 
@@ -337,7 +378,7 @@ export async function walkFiles(
 				if (EXCLUDED_DIR_NAMES.has(entry.name) || denied(full)) continue;
 				if (await walkDir(full)) return true;
 			} else if (entry.isFile()) {
-				if (denied(full)) continue;
+				if (denied(full) || sourceFileProblem(full)) continue;
 				if (await visit(full)) return true;
 			}
 			// symlinks/other: not followed (pi's fd doesn't follow either)

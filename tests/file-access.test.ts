@@ -28,8 +28,8 @@ await write(notesA, "shared course marker A\n");
 await write(notesB, "shared course marker B\n");
 await write(path.join(a, "nested", "more.md"), "shared course marker nested\n");
 await write(path.join(a, "..notes", "literal.md"), "literal dot-prefix\n");
-await write(path.join(outside, "secret.txt"), "OUTSIDE_ONLY_MARKER\n");
-await write(path.join(home, "StudyA-old", "secret.txt"), "OUTSIDE_ONLY_MARKER\n");
+await write(path.join(outside, "private.txt"), "OUTSIDE_ONLY_MARKER\n");
+await write(path.join(home, "StudyA-old", "private.txt"), "OUTSIDE_ONLY_MARKER\n");
 await write(auth, "SYNTHETIC_CREDENTIAL_MARKER\n");
 await write(path.join(home, ".ssh", "key"), "SYNTHETIC_CREDENTIAL_MARKER\n");
 await write(path.join(a, ".env.example"), "SYNTHETIC_CREDENTIAL_MARKER\n");
@@ -78,7 +78,7 @@ const mandatory = /Access denied: .*protected location/;
 describe("optional folder policy (finishing lickbot #157)", () => {
 	it("OFF retains broad reads even with a saved folder list, and no whole app-data ban", async () => {
 		policy = { restricted: false, folders: [a] };
-		assert.match(await text(readTool, { path: path.join(outside, "secret.txt") }), /OUTSIDE_ONLY/);
+		assert.match(await text(readTool, { path: path.join(outside, "private.txt") }), /OUTSIDE_ONLY/);
 		assert.match(await text(readTool, { path: path.join(data, "chats", "session.json") }), /ordinary learning/);
 		assert.match(await text(readTool, { path: path.join(root, "private", "logs", "main.log") }), /ordinary application/);
 		assert.equal(resolveSourcePath(), home);
@@ -98,13 +98,13 @@ describe("optional folder policy (finishing lickbot #157)", () => {
 		assert.equal(resolveSourcePath("~/StudyA/notes.md"), notesA);
 		assert.equal(resolveSourcePath(path.join(a, "..notes", "literal.md")), path.join(a, "..notes", "literal.md"));
 		assert.throws(() => resolveSourcePath("notes.md"), boundary);
-		assert.throws(() => resolveSourcePath("StudyA/../Outside/secret.txt"), boundary);
-		assert.throws(() => resolveSourcePath(path.join(home, "StudyA-old", "secret.txt")), boundary);
+		assert.throws(() => resolveSourcePath("StudyA/../Outside/private.txt"), boundary);
+		assert.throws(() => resolveSourcePath(path.join(home, "StudyA-old", "private.txt")), boundary);
 		assert.equal(await guardSourcePath(path.join(root, "alias-a", "notes.md")), notesA);
 	});
 	it("source symlinks cannot escape, but aliases INTO an allowed target work", async () => {
 		policy = { restricted: true, folders: [a] };
-		await assert.rejects(readTool.execute!("x", { path: path.join(a, "escape", "secret.txt") }), boundary);
+		await assert.rejects(readTool.execute!("x", { path: path.join(a, "escape", "private.txt") }), boundary);
 		await assert.rejects(readTool.execute!("x", { path: path.join(a, "other-root", "notes.md") }), boundary);
 		assert.match(await text(readTool, { path: path.join(root, "alias-a", "notes.md") }), /marker A/);
 		assert.doesNotMatch(await text(lsTool, { path: a }), /escape|other-root/);
@@ -218,7 +218,7 @@ describe("live policy and all learner-source surfaces", () => {
 		const ctx = { chatId: "synthetic", chatStore: { getChat: () => null, saveImageSnapshot: () => { snapshots++; } } as unknown as ChatStore,
 			jobStore: { findJobByToolCallId: () => undefined, createJob: () => { jobs++; throw new Error("must not create a refused job"); } } as unknown as JobStore, spawn: () => {}, deliver: () => {} };
 		for (const tools of [createProberTools(ctx), createTeacherTools(ctx), practiceTools({ ...ctx, jobs: ctx })]) {
-			await assert.rejects(tools.read!.execute!("x", { path: path.join(outside, "secret.txt") }), boundary);
+			await assert.rejects(tools.read!.execute!("x", { path: path.join(outside, "private.txt") }), boundary);
 			await assert.rejects(tools.ls!.execute!("x", { path: outside }), boundary);
 			await assert.rejects(tools.find!.execute!("x", { path: outside, pattern: "*" }), boundary);
 			await assert.rejects(tools.grep!.execute!("x", { path: outside, pattern: "x" }), boundary);
@@ -279,11 +279,12 @@ describe("live policy and all learner-source surfaces", () => {
 });
 
 describe("settings parsing and UI", () => {
-	it("normalizes explicit mode/folders, preserves default OFF and rejects malformed policy", () => {
+	it("normalizes explicit mode/folders, defaults to RESTRICTED (owner, 2026-11-04) and rejects malformed policy", () => {
 		const parsed = parseAgentSettingsBody({ fileAccess: { restricted: true, folders: [" ~/Study ", a, "~/Study"] } });
 		assert.ok(parsed.ok);
 		assert.deepEqual(parsed.settings.fileAccess, { restricted: true, folders: ["~/Study", a] });
-		assert.deepEqual(parseAgentSettingsBody({ fileAccess: { folders: [a] } }), { ok: true, settings: { fileAccess: { restricted: false, folders: [a] } } });
+		assert.deepEqual(parseAgentSettingsBody({ fileAccess: { folders: [a] } }), { ok: true, settings: { fileAccess: { restricted: true, folders: [a] } } });
+		assert.deepEqual(parseAgentSettingsBody({ fileAccess: { restricted: false, folders: [a] } }), { ok: true, settings: { fileAccess: { restricted: false, folders: [a] } } });
 		for (const bad of [null, [], "on", { restricted: "yes" }, { folders: "~/Study" }, { folders: ["Study"] }, { folders: [3] }, { restricted: true, folders: [a, "bad"] }, { restrictd: true }]) {
 			assert.equal(parseAgentSettingsBody({ fileAccess: bad }).ok, false);
 			assert.deepEqual(sanitizeUserSettings({ version: 1, agent: { fileAccess: bad } })?.agent?.fileAccess, { restricted: true, folders: [] });
@@ -295,7 +296,7 @@ describe("settings parsing and UI", () => {
 	it("UI composition preserves the switch, saved roots and unrelated agent preferences", () => {
 		assert.ok(isFolderEntry("~/Study")); assert.ok(isFolderEntry("C:\\Users\\learner")); assert.ok(!isFolderEntry("relative"));
 		const one = composeAddFolder({ tools: { pdf: false }, graphTools: { enabled: false } }, " ~/Study ");
-		assert.deepEqual(one.fileAccess, { restricted: false, folders: ["~/Study"] });
+		assert.deepEqual(one.fileAccess, { restricted: true, folders: ["~/Study"] }, "no saved switch = restricted");
 		const on = composeFileRestriction(one, true);
 		assert.deepEqual(composeAddFolder(on, "~/Study"), on);
 		assert.deepEqual(composeAddFolder(on, "relative"), on);
@@ -307,7 +308,9 @@ describe("settings parsing and UI", () => {
 	});
 	it("SSR makes OFF, empty ON, editable folders and fail-closed errors explicit", () => {
 		const render = (agent?: Parameters<typeof AgentSection>[0]["agent"], fileAccessError?: string) => renderToStaticMarkup(React.createElement(AgentSection, { agent, fileAccessError, models: undefined, graph: undefined, compaction: undefined, onSectionChange: () => {}, onModelsChange: () => {}, onCompactionChange: () => {} }));
-		const off = render();
+		// Nothing saved shows RESTRICTED (owner, 2026-11-04); only an explicit OFF is broad.
+		assert.match(render(), /aria-checked="true"[^>]*aria-label="Restrict to listed folders"/);
+		const off = render({ fileAccess: { restricted: false, folders: [] } });
 		assert.match(off, /Broad local source access/);
 		assert.match(off, /aria-checked="false"[^>]*aria-label="Restrict to listed folders"/);
 		const empty = render({ fileAccess: { restricted: true, folders: [] } });

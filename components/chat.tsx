@@ -47,6 +47,8 @@ import {
 	type ChatSettings,
 	type LhMessage,
 	type ModelSlotName,
+	type CodeFile,
+	type CodeRunResult,
 } from "@/src/core";
 import { PlanBlock, PlanPopup, latestTree } from "@/components/plan-block";
 import { PlanMarginalia, planExists } from "@/components/plan-window";
@@ -502,6 +504,15 @@ export function Chat({
 			const problem = activeProblemRef.current;
 			if (!problem) return;
 			void send({ type: "thinking", problemCallId: problem.toolCallId, text });
+		},
+		[send],
+	);
+	// Practice code submissions (Phase 2): files + last run + optional thinking.
+	const submitCode = useCallback(
+		(code: { files: CodeFile[]; run?: CodeRunResult; text: string }) => {
+			const problem = activeProblemRef.current;
+			if (!problem) return;
+			void send({ type: "code", problemCallId: problem.toolCallId, files: code.files, ...(code.run ? { run: code.run } : {}), text: code.text });
 		},
 		[send],
 	);
@@ -1588,7 +1599,9 @@ export function Chat({
 													case "tool-probe":
 													case "tool-ask_user_question":
 													case "tool-explain":
-													case "tool-recall": {
+													case "tool-recall":
+													case "tool-code":
+													case "tool-probe_code": {
 														const malformed = !busy && malformedQuestions.find(call => call.messageId === part.sourceMessageId && call.contentIndex === part.sourceContentIndex && call.toolCallId === part.toolCallId);
 														if (malformed) return <MalformedQuestion key={pi} disabled={!!pending || compacting}
 															reason={pending ? "Answer or discard the remaining question first." : undefined}
@@ -1698,6 +1711,7 @@ export function Chat({
 					practice={activeProblem}
 					compactionRunning={compacting}
 					onSubmitThinking={submitThinking}
+					onSubmitCode={submitCode}
 					chatId={chatId}
 					onModelChange={setSelectedModel}
 					plan={hasPlan ? <PlanMarginalia messages={messages} /> : undefined}
@@ -1932,6 +1946,7 @@ function DockOverlay({
 	practice,
 	compactionRunning,
 	onSubmitThinking,
+	onSubmitCode,
 	requiresReveal,
 	readingThinking,
 	readingThinkingRevision,
@@ -1965,6 +1980,8 @@ function DockOverlay({
 	practice: { toolCallId: string; input: unknown } | null;
 	/** (commit, text) — the practice dock's two submit lanes. */
 	onSubmitThinking: (text: string) => void;
+	/** Practice code problems (Phase 2): the code submission lane. */
+	onSubmitCode: (code: { files: CodeFile[]; run?: CodeRunResult; text: string }) => void;
 	/** Teach-phase pending question: arrives collapsed behind the reveal button (W5). */
 	requiresReveal: boolean;
 	/** The reading-thinking draft (owner 2026-10-03) — owned by ChatView so
@@ -2394,7 +2411,8 @@ function DockOverlay({
 						>
 							{pending ? (
 								<QuestionDock
-									toolName={pending.tool as "quiz" | "probe" | "ask_user_question" | "explain" | "recall"}
+									toolName={pending.tool as "quiz" | "probe" | "ask_user_question" | "explain" | "recall" | "code" | "probe_code"}
+									chatId={chatId}
 									toolCallId={pending.toolCallId}
 									input={pending.input as never}
 									expanded={expanded}
@@ -2411,7 +2429,9 @@ function DockOverlay({
 							) : practice ? (
 								<PracticeDock
 									problemCallId={practice.toolCallId}
-									input={practice.input as { statement: string }}
+									input={practice.input as { statement: string; code?: unknown }}
+									chatId={chatId}
+									onSubmitCode={onSubmitCode}
 									expanded={expanded}
 									onExpand={() => {
 										setExpanded(true);

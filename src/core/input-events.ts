@@ -29,6 +29,8 @@
  */
 
 import type { QuestionAnswerData } from "./question-core.ts";
+import { boundRunResult, isCodeLanguage, starterFiles, submittedFilesProblems, type CodeFile, type CodeRunResult } from "./code-answer.ts";
+import { parseCodeInput } from "./tool-parts.ts";
 import type { LhMessage } from "./native-messages.ts";
 import {
 	activeProblemOf,
@@ -38,6 +40,7 @@ import {
 	newNextMessage,
 	newProblemDismissedMarker,
 	newThinkingMessage,
+	newCodeSubmissionMessage,
 	newUserMessage,
 	newMessageId,
 	questionCallsOf,
@@ -59,6 +62,10 @@ export type ChatInput =
 	 *  whether it claims an answer is read from the text. One
 	 *  problem may carry many submissions; each is its own turn. */
 	| { type: "thinking"; problemCallId: string; text: string }
+	/** A practice CODE submission (Phase 2): the edited files (exactly the
+	 *  problem's files), the last run's bounded evidence, and optional
+	 *  thinking. Becomes a practice-thinking marker carrying the code. */
+	| { type: "code"; problemCallId: string; files: CodeFile[]; run?: CodeRunResult; text: string }
 	/** The practice move-on signal (owner round 16): the learner's
 	 *  explicit go-ahead during the between-problems pause — the Next
 	 *  chip or Enter on an empty composer. Practice sessions only, and
@@ -195,6 +202,16 @@ export function parseChatInput(input: unknown): ChatInput {
 				throw new ChatInputError("thinking input requires non-empty text");
 			}
 			return { type: "thinking", problemCallId: i.problemCallId, text: i.text };
+		case "code": {
+			if (typeof i.problemCallId !== "string" || i.problemCallId.length === 0) {
+				throw new ChatInputError("code input requires problemCallId");
+			}
+			if (!Array.isArray(i.files)) throw new ChatInputError("code input requires files");
+			if (i.text !== undefined && typeof i.text !== "string") throw new ChatInputError("code input text must be a string");
+			const run = i.run === undefined ? undefined : boundRunResult(i.run);
+			if (i.run !== undefined && !run) throw new ChatInputError("code input run is malformed");
+			return { type: "code", problemCallId: i.problemCallId, files: i.files as CodeFile[], ...(run ? { run } : {}), text: (i.text as string | undefined) ?? "" };
+		}
 		case "next":
 			return { type: "next" };
 		default:
@@ -223,7 +240,7 @@ export function inputAppends(
 			if (!pending || pending.toolCallId !== input.toolCallId) {
 				throw new ChatInputError("answer input targets no pending question call");
 			}
-			return [newAnswerResult(input.toolCallId, pending.tool, input.answer)];
+			return [newAnswerResult(input.toolCallId, pending.tool, codeAnswerChecked(pending, input.answer))];
 		}
 		case "continue":
 			return dismissalConclusion(record);
@@ -240,6 +257,18 @@ export function inputAppends(
 			}
 			return [...dismissalConclusion(record), newThinkingMessage(input.problemCallId, input.text)];
 		}
+		case "code": {
+			const active = activeProblemOf(record.messages);
+			if (!active || active.toolCallId !== input.problemCallId) {
+				throw new ChatInputError("code input targets no active problem");
+			}
+			const code = (active.input as { code?: { language?: unknown; files?: CodeFile[] } } | null)?.code;
+			if (!code || !isCodeLanguage(code.language)) throw new ChatInputError("code input targets a problem that is not a code problem");
+			const problems = submittedFilesProblems(code.language, starterFiles(code.language, code.files), input.files);
+			if (problems.length > 0) throw new ChatInputError(`code input: ${problems.join(" ")}`);
+			const files = input.files.map((f) => ({ name: f.name, content: f.content }));
+			return [...dismissalConclusion(record), newCodeSubmissionMessage(input.problemCallId, { language: code.language, files, ...(input.run ? { run: input.run } : {}) }, input.text)];
+		}
 		case "next": {
 			// Honest 400s, the thinking gate's discipline: the signal is a
 			// between-problems affordance — practice sessions only, nothing
@@ -254,6 +283,25 @@ export function inputAppends(
 			return [...dismissalConclusion(record), newNextMessage()];
 		}
 	}
+}
+
+/** Code answers (Phase 2): the submitted files must be exactly the
+ *  question's files (edit-only) and the run evidence is re-bounded on the
+ *  server — the dock is not trusted with either. Other answers pass. */
+function codeAnswerChecked(pending: { tool: string; input: unknown }, answer: QuestionAnswerData): QuestionAnswerData {
+	if (toolQuestionKind(pending.tool) !== "code" || answer.dismissed) return answer;
+	if (answer.kind !== "code") throw new ChatInputError("answer kind does not match the code question");
+	const question = parseCodeInput(pending.input);
+	if (!question) throw new ChatInputError("answer input targets an unreadable code question");
+	const out: QuestionAnswerData = { ...answer, language: question.language };
+	delete out.run;
+	if (answer.dontKnow) { delete out.files; return out; }
+	const problems = submittedFilesProblems(question.language, starterFiles(question.language, question.files), answer.files);
+	if (problems.length > 0) throw new ChatInputError(`code answer: ${problems.join(" ")}`);
+	out.files = (answer.files ?? []).map((f) => ({ name: f.name, content: f.content }));
+	const run = answer.run === undefined ? undefined : boundRunResult(answer.run);
+	if (run) out.run = run;
+	return out;
 }
 
 /** Validate before any turn effects, then again against current saved truth.

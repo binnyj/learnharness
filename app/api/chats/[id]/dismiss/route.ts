@@ -60,6 +60,10 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
 	// Write-ahead, turn-less: the record is the only state that moves.
 	const merged = [...chat.messages, ...appends];
 	stores.chatStore.saveMessages(id, merged);
+	// A dismissed code question's draft goes with it (Phase 2).
+	if (typeof (input as { toolCallId?: unknown }).toolCallId === "string") {
+		try { stores.codeDraftStore.clearDraft(id, (input as { toolCallId: string }).toolCallId); } catch { /* best-effort */ }
+	}
 	emit("record-changed", { chatId: id });
 	return Response.json({ ok: true });
 }

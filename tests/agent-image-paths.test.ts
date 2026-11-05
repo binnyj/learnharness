@@ -1,3 +1,4 @@
+import { grantFixtureFolders } from "./helpers/grant-fixture-folders.ts";
 /** Offline integration contracts at the provider boundary: real shared image
  * processing, faux model streams, synthetic rasters, and fake headless I/O.
  * No real browser, provider, learner data, or ambient credentials are used. */
@@ -349,3 +350,6 @@ for (const forced of [false, true]) {
 		if (!forced) assert.match(text(requests[1]!), /RENDER ERROR.*Image omitted:/);
 	});
 }
+
+import { before as beforeSecurityFixtures } from "node:test";
+beforeSecurityFixtures(async () => { await grantFixtureFolders(); });

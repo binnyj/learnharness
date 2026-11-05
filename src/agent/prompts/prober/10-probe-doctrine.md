@@ -12,6 +12,8 @@ Work strictly one question at a time: ask, wait for the answer, then choose the 
 
 "I want to understand LLMs" can mean ten different things; which one changes everything. Interrogate until it's concrete. Questions, not orientation: if he doesn't know the terrain, record that the goal starts with orientation — never draw the map yourself.
 
+Also settle whether he wants to UNDERSTAND the subject or be able to WRITE it — ask if unclear. A write goal is measured by writing: on those strands, bracket with short `probe_code` demands.
+
 ## 3. Reason out the strands
 
 From the goal, what will the lesson depend on? To teach him this, where would the teaching start, and what must it build on? Each dependency is a strand — bound by relevance, nothing more.

@@ -1,4 +1,5 @@
 "use strict";
+const { readSecureText, writeSecureText } = require("./secure-json.cjs");
 
 // LearnHarness-owned public-client OAuth. Never import pi's bundled login.
 // This module is main-process-only; dependencies are injectable for scratch tests.
@@ -50,12 +51,12 @@ function validateState(state) {
 	return state;
 }
 
-/** Private, unencrypted JSON outside learning data. No OS credential-store access. */
+/** Encrypted local JSON with a macOS Keychain wrapping key. */
 function fileStore(file) {
 	return {
 		async read() {
 			try {
-				return validateState(JSON.parse(await fs.readFile(file, "utf8")));
+				return validateState(JSON.parse(readSecureText(file, text => validateState(JSON.parse(text)))));
 			} catch (err) {
 				if (err.code === "ENOENT") return null;
 				throw fail("storage");
@@ -63,27 +64,7 @@ function fileStore(file) {
 		},
 		async write(state) {
 			validateState(state);
-			const temp = `${file}.${crypto.randomUUID()}.tmp`;
-			let handle;
-			try {
-				await fs.mkdir(path.dirname(file), { recursive: true, mode: 0o700 });
-				handle = await fs.open(temp, "wx", 0o600);
-				await handle.writeFile(`${JSON.stringify(state)}\n`);
-				await handle.sync();
-				await handle.close();
-				handle = null;
-				await fs.rename(temp, file);
-				// Directory fsync is supported on Unix; the file fsync above is mandatory.
-				if (process.platform !== "win32") {
-					const dir = await fs.open(path.dirname(file), "r");
-					try { await dir.sync(); } finally { await dir.close(); }
-				}
-			} catch {
-				throw fail("storage");
-			} finally {
-				await handle?.close().catch(() => {});
-				await fs.unlink(temp).catch(() => {});
-			}
+			try { writeSecureText(file, JSON.stringify(state)); } catch { throw fail("storage"); }
 		},
 	};
 }

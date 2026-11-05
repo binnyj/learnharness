@@ -1,3 +1,4 @@
+import { grantFixtureFolders } from "./helpers/grant-fixture-folders.ts";
 import assert from "node:assert/strict";
 import type { AsyncLocalStorage } from "node:async_hooks";
 import type { BackgroundCapture } from "../src/agent/background-capture.ts";
@@ -354,3 +355,6 @@ test("recording failures and unserializable payloads never throw into a worker",
 	assert.doesNotThrow(() => { bad.begin(model, {}); bad.finish(new Error("Fixture")); });
 	assert.equal(warnings, 1, "One warning per run, no endless debug-log errors");
 });
+
+import { before as beforeSecurityFixtures } from "node:test";
+beforeSecurityFixtures(async () => { await grantFixtureFolders(); });

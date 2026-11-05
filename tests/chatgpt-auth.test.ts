@@ -1,3 +1,5 @@
+import "./helpers/vault-fixture.ts";
+import { readSecureText } from "../electron/secure-json.cjs";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { createRequire } from "node:module";
@@ -252,7 +254,7 @@ test("private JSON file round-trips global state; creation and atomic replacemen
 		assert.equal(await store.read(), null);
 		const data = { ...initial(), allowBackgroundUse: false };
 		await store.write(data);
-		assert.deepEqual(JSON.parse(await fs.readFile(file, "utf8")), data, "ordinary JSON, not an encrypted envelope");
+		assert.deepEqual(JSON.parse(readSecureText(file)), data, "decrypted record preserves the original schema");
 		assert.deepEqual(await store.read(), data);
 		assert.equal((await fs.stat(path.dirname(file))).mode & 0o777, 0o700);
 		assert.equal((await fs.stat(file)).mode & 0o777, 0o600);

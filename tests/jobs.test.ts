@@ -1,3 +1,5 @@
+import "./helpers/security-fixture.ts";
+import { grantFixtureFolders } from "./helpers/grant-fixture-folders.ts";
 /**
  * Job infrastructure tests — deterministic, zero network:
  *
@@ -1500,7 +1502,7 @@ describe("prompt composition", () => {
 		for (const kind of ["teacher", "prober"] as const) {
 			const instructions = composeInstructions(kind);
 			assert.ok(instructions.includes("## Learner files"), `${kind} carries the shared learner-files fragment`);
-			assert.ok(instructions.includes("find it yourself with `find`"), `${kind} knows to locate files itself`);
+			assert.ok(instructions.includes("allowed folders"), `${kind} knows where file access is limited`);
 			assert.ok(instructions.includes("home directory"), `${kind} knows the home-anchored path rule`);
 		}
 		// the agent's OWN fragments compose before the shared appendix
@@ -1915,3 +1917,6 @@ describe("composer steering: steerLiveChat + the deliver-or-requeue lifecycle", 
 		reconcileUserSteers(chatId, [stranded, delivered] as never); // cleanup
 	});
 });
+
+import { before as beforeSecurityFixtures } from "node:test";
+beforeSecurityFixtures(async () => { await grantFixtureFolders(); });

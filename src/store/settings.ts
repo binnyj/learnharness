@@ -26,9 +26,19 @@ import {
 } from "../core/settings.ts";
 import type { SettingsStore } from "../core/ports.ts";
 import { writeFileAtomicSync } from "./atomic-write.ts";
-import { parseFileAccessSettings, type FileAccessSettingsResult } from "../core/file-access.ts";
+import { parseFileAccessSettings, type FileAccessSettings, type FileAccessSettingsResult } from "../core/file-access.ts";
 
 const FILE_ACCESS_ERROR = "File-access configuration cannot be read reliably. Learner-file access is blocked. Repair File access in Settings → Agent → Tools.";
+
+/** Learner-file access defaults to RESTRICTED (owner, merge 2026-11-04):
+ * with no saved preference the tutor reads nothing until a folder is
+ * approved. Folders approved under the earlier local setting
+ * (`security.learningFolders`) carry over. */
+function defaultFileAccess(raw: unknown): FileAccessSettings {
+	const legacy = (raw as { security?: { learningFolders?: unknown } } | null)?.security?.learningFolders;
+	const folders = Array.isArray(legacy) ? legacy.filter((f): f is string => typeof f === "string" && path.isAbsolute(f) && !f.includes("\0")) : [];
+	return { restricted: true, folders: [...new Set(folders)] };
+}
 
 /** Separate strict view: the ordinary settings API keeps its historical
  * null/default behavior, but source access must distinguish absent prefs
@@ -36,10 +46,10 @@ const FILE_ACCESS_ERROR = "File-access configuration cannot be read reliably. Le
 function fileAccessFromRecord(raw: unknown): FileAccessSettingsResult {
 	if (!raw || typeof raw !== "object" || Array.isArray(raw)) return { ok: false, error: FILE_ACCESS_ERROR };
 	const agent = (raw as Record<string, unknown>).agent;
-	if (agent === undefined) return { ok: true, settings: { restricted: false, folders: [] } };
+	if (agent === undefined) return { ok: true, settings: defaultFileAccess(raw) };
 	if (!agent || typeof agent !== "object" || Array.isArray(agent)) return { ok: false, error: FILE_ACCESS_ERROR };
 	const value = (agent as Record<string, unknown>).fileAccess;
-	if (value === undefined) return { ok: true, settings: { restricted: false, folders: [] } };
+	if (value === undefined) return { ok: true, settings: defaultFileAccess(raw) };
 	const parsed = parseFileAccessSettings(value);
 	if (!parsed.ok || parsed.settings.folders.some((folder) => folder !== "~" && !folder.startsWith("~/") && !path.isAbsolute(folder))) {
 		return { ok: false, error: FILE_ACCESS_ERROR };
@@ -74,7 +84,7 @@ export function readFileAccessSettings(): FileAccessSettingsResult {
 	try { raw = fs.readFileSync(SETTINGS_FILE, "utf-8"); }
 	catch (error) {
 		return (error as NodeJS.ErrnoException).code === "ENOENT" && settingsAreAbsent()
-			? { ok: true, settings: { restricted: false, folders: [] } }
+			? { ok: true, settings: { restricted: true, folders: [] } }
 			: { ok: false, error: FILE_ACCESS_ERROR };
 	}
 	try { return fileAccessFromRecord(JSON.parse(raw)); }
@@ -102,6 +112,10 @@ export function readSettings(): UserSettings | null {
 		// Unrelated section writes carry this safe placeholder, not a dropped
 		// malformed policy that would silently restore unrestricted reads.
 		record.agent = { ...record.agent, fileAccess: { restricted: true, folders: [] } };
+	} else if (record.agent?.fileAccess === undefined && defaultFileAccess(parsed).folders.length > 0) {
+		// Carry earlier approved folders into the editor (persisted on the next
+		// save). With none, the UI's own restricted default already matches.
+		record.agent = { ...record.agent, fileAccess: defaultFileAccess(parsed) };
 	}
 	// Version chain (empty today): a future v2 migration slots in here —
 	// `if (record.version > CURRENT_SETTINGS_VERSION) …`. Unknown NEWER

@@ -2,7 +2,8 @@
 
 import { ToolContentResponse } from "@/components/ai-elements/message";
 import { cn } from "@/lib/utils";
-import type { ArtifactPartProps } from "@/src/core";
+import type { ArtifactPartProps, CodeFile, CodeLanguage, CodeRunResult } from "@/src/core";
+import { CodeAnswerView } from "@/components/code/code-answer-view";
 
 /**
  * The practice transcript cards (practice sessions, owner design
@@ -53,6 +54,8 @@ export interface PracticeThinkingData {
 	/** Legacy records (pre 2026-10-05) carry the old two-lane flag; ignored. */
 	commit?: boolean;
 	text: string;
+	/** Code submissions (Phase 2): the files + last run. */
+	code?: { language: CodeLanguage; files: CodeFile[]; run?: CodeRunResult };
 }
 
 export function ProblemCard({ part }: ArtifactPartProps) {
@@ -294,5 +297,14 @@ export function ThinkingCard({ data }: { data: PracticeThinkingData }) {
 	// 50%-italic quote block on expand. Legacy records' commit flag is
 	// deliberately unread (one lane now). A TRANSCRIPT row (owner round,
 	// 2026-10-07): full-width band + rail, arriving expanded.
+	if (data.code && Array.isArray(data.code.files)) {
+		return (
+			<div data-testid="code-submission-card" className="my-1">
+				<div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Your code</div>
+				<CodeAnswerView files={data.code.files} run={data.code.run} />
+				{data.text && <ThinkingBlock testId="thinking-card" label="YOUR THINKING" text={data.text} defaultOpen />}
+			</div>
+		);
+	}
 	return <ThinkingBlock testId="thinking-card" label="YOUR THINKING" text={data.text} defaultOpen />;
 }

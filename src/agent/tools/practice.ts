@@ -27,6 +27,7 @@ import { activeProblemOf } from "../../core/native-messages.ts";
 import type { LhMessage } from "../../core/native-messages.ts";
 import { concludeResult, invalidInputResult, problemResult } from "../tool-execute.ts";
 import { healEncodedArguments, healToolRecord } from "./heal.ts";
+import { codeFilesProblems, problemCodeSchema } from "../../core/code-answer.ts";
 
 
 /** The record-reading context the gates need (the plan-tools idiom). */
@@ -90,6 +91,7 @@ export const problemInputObject = Type.Object({
 	modelSolution: Type.String({
 		description: "REQUIRED — the full solution, moves in order, committed BEFORE the learner sees the problem. This IS the reveal — conclude shows it verbatim; never re-author it.",
 	}),
+	code: Type.Optional(problemCodeSchema),
 });
 
 export type ProblemInput = Static<typeof problemInputObject>;
@@ -103,7 +105,9 @@ export function problemTool(
 		label: "problem",
 		description:
 			"Pose one practice problem. Ends the turn — the learner works in the thinking field; their thinking " +
-			"traces and answer commits arrive back as labeled messages. The modelSolution rides this call's " +
+			"traces and answer commits arrive back as labeled messages. With `code` set, the learner also gets a code " +
+			"editor over your files (contents only) and each submission arrives as a \"Your code\" message with his " +
+			"files and last run. The modelSolution rides this call's " +
 			"arguments and stays hidden from the learner until you conclude (conclude shows it verbatim — the " +
 			"reveal needs no new field). Only one problem may be active — conclude it before posing the next.",
 		parameters: problemInputObject,
@@ -153,6 +157,11 @@ export function problemTool(
 						`target ${JSON.stringify(unknown)} is not a known proposition — targets must be proposition ids from the session context; if the material is not in the map, omit target entirely`,
 					]);
 				}
+			}
+			// CODE PROBLEMS (Phase 2): the same file rules as the code tool.
+			if (input.code) {
+				const problems = codeFilesProblems(input.code.language, input.code.files);
+				if (problems.length > 0) return invalidInputResult("problem", problems);
 			}
 			gate.problemActive = true;
 			return problemResult();

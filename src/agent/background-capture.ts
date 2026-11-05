@@ -5,6 +5,7 @@
 import * as fs from "node:fs";
 import { AsyncLocalStorage } from "node:async_hooks";
 import { NATIVE_SUBSCRIPTIONS } from "../core/contracts/subscriptions.ts";
+import { redactDeep, secretValues } from "../core/secret-redaction.ts";
 import path from "node:path";
 import { PATHS, type ModelRole } from "../../config.ts";
 import type { Api, AssistantMessage, Model, SimpleStreamOptions, StreamFunction, ToolResultMessage } from "@earendil-works/pi-ai";
@@ -80,7 +81,7 @@ export function createBackgroundCapture(input: { role: ModelRole; runId: string;
 	function write() {
 		try {
 			fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
-			fs.writeFileSync(temporary, `${JSON.stringify(record, null, 2)}\n`, { mode: 0o600 });
+			fs.writeFileSync(temporary, `${JSON.stringify(redactDeep(record, secretValues(process.env)), null, 2)}\n`, { mode: 0o600 });
 			fs.renameSync(temporary, file);
 		} catch {
 			try { fs.unlinkSync(temporary); } catch { /* Nothing to remove. */ }

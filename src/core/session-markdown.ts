@@ -81,6 +81,7 @@ function toolResultBody(result: ToolResultMessage, ctx?: MarkdownContext): { hea
 				answers: string[];
 				other: string;
 				dismissed: boolean;
+				files: { name: string; content: string }[];
 		  }>
 		| undefined;
 
@@ -88,7 +89,9 @@ function toolResultBody(result: ToolResultMessage, ctx?: MarkdownContext): { hea
 		result.toolName === "quiz" ||
 		result.toolName === "probe" ||
 		result.toolName === "explain" ||
-		result.toolName === "recall"
+		result.toolName === "recall" ||
+		result.toolName === "code" ||
+		result.toolName === "probe_code"
 	) {
 		const heading =
 			result.toolName === "quiz"
@@ -97,7 +100,11 @@ function toolResultBody(result: ToolResultMessage, ctx?: MarkdownContext): { hea
 					? "Probe"
 					: result.toolName === "recall"
 						? "Recall"
-						: "Recall check"; // explain — the teach free-recall name
+						: result.toolName === "code"
+							? "Code check"
+							: result.toolName === "probe_code"
+								? "Code probe"
+								: "Recall check"; // explain — the teach free-recall name
 		const question = typeof out?.questionText === "string" && out.questionText ? out.questionText : "(no question text)";
 		const body = [`**Q:** ${question}`];
 		if (out?.dismissed === true) body.push("The learner skipped this check.");
@@ -105,6 +112,10 @@ function toolResultBody(result: ToolResultMessage, ctx?: MarkdownContext): { hea
 		else if (out?.correct === true) body.push("The learner answered correctly.");
 		else if (out?.correct === false) body.push("The learner answered incorrectly.");
 		else if (typeof out?.text === "string" && out.text.trim()) body.push(`The learner answered in his own words: ${out.text.trim()}`);
+		else if (Array.isArray(out?.files) && out.files.length > 0) {
+			body.push("The learner answered in code:");
+			for (const f of out.files) if (f && typeof f.name === "string" && typeof f.content === "string") body.push(`\`${f.name}\``, "```", f.content, "```");
+		}
 		if (typeof out?.note === "string" && out.note) body.push(`*(his thinking: ${out.note})*`);
 		return { heading, body };
 	}

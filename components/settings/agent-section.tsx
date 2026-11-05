@@ -118,6 +118,14 @@ export function composeTool(agent: AgentSettings | undefined, id: string, on: bo
 export function isFolderEntry(folder: string): boolean { return isFileAccessFolder(folder); }
 
 /** The switch changes ONLY restriction, never discards saved folders. */
+/** Folders that expose almost everything (owner, Phase 1): /, the home
+ *  folder, and top-level system folders. Adding one needs a confirmation. */
+export function isBroadFolder(folder: string): boolean {
+	const f = folder.trim().replace(/[\\/]+$/, "") || "/";
+	return f === "/" || f === "~" || /^\/Users\/[^/]+$/.test(f) || /^\/home\/[^/]+$/.test(f) ||
+		["/Users", "/home", "/System", "/Library", "/Volumes", "/Applications", "/private", "/etc", "/var", "/usr"].includes(f);
+}
+
 export function composeFileRestriction(agent: AgentSettings | undefined, restricted: boolean): AgentSettings {
 	return { ...agent, fileAccess: { restricted, folders: agent?.fileAccess?.folders ?? [] } };
 }
@@ -127,14 +135,14 @@ export function composeFileRestriction(agent: AgentSettings | undefined, restric
 export function composeAddFolder(agent: AgentSettings | undefined, folder: string): AgentSettings {
 	const next = folder.trim();
 	const folders = agent?.fileAccess?.folders ?? [];
-	const restricted = agent?.fileAccess?.restricted ?? false;
+	const restricted = agent?.fileAccess?.restricted ?? true;
 	if (!isFolderEntry(next) || folders.includes(next)) return { ...agent, fileAccess: { restricted, folders } };
 	return { ...agent, fileAccess: { restricted, folders: [...folders, next] } };
 }
 
 /** Removing the last folder NEVER changes the restriction switch. */
 export function composeRemoveFolder(agent: AgentSettings | undefined, folder: string): AgentSettings {
-	return { ...agent, fileAccess: { restricted: agent?.fileAccess?.restricted ?? false, folders: (agent?.fileAccess?.folders ?? []).filter((f) => f !== folder) } };
+	return { ...agent, fileAccess: { restricted: agent?.fileAccess?.restricted ?? true, folders: (agent?.fileAccess?.folders ?? []).filter((f) => f !== folder) } };
 }
 
 /** The quizzing mechanics (owner 2026-09-27): a segmented control, not a
@@ -342,6 +350,8 @@ export function AgentSection({
 	/** The live search state (/api/search) — the row's reason line. */
 	const [folderInput, setFolderInput] = useState("");
 	const [folderError, setFolderError] = useState<string | null>(null);
+	// Broad folders (/, home, top-level system folders) need a second click.
+	const [confirmBroad, setConfirmBroad] = useState<string | null>(null);
 	const [search, setSearch] = useState<{ available: boolean; engine: string | null; reason: string } | null>(null);
 	/** Which search engines have a key (/api/keys) — the no-keys-anywhere
 	 *  state grays the row; per-engine marks ride the menu rows. */
@@ -850,14 +860,21 @@ export function AgentSection({
 				))}
 				{(() => {
 					const folders = agent?.fileAccess?.folders ?? [];
-					const restricted = Boolean(fileAccessError) || agent?.fileAccess?.restricted === true;
+					// Restricted unless explicitly switched off (owner, merge 2026-11-04).
+					const restricted = Boolean(fileAccessError) || agent?.fileAccess?.restricted !== false;
 					const effectiveAgent = fileAccessError ? { ...agent, fileAccess: { restricted: true, folders } } : agent;
 					const addFolder = () => {
 						const next = folderInput.trim();
 						if (!isFolderEntry(next)) { setFolderError("Enter an absolute path or ~/folder."); return; }
+						if (isBroadFolder(next) && confirmBroad !== next) {
+							setConfirmBroad(next);
+							setFolderError(`${next} is a very broad folder. The tutor could read almost any file inside, including private documents. Prefer a dedicated study folder such as ~/Documents/learning. Click Add anyway to approve it.`);
+							return;
+						}
 						if (!folders.includes(next)) onSectionChange(composeAddFolder(effectiveAgent, next));
 						setFolderInput("");
 						setFolderError(null);
+						setConfirmBroad(null);
 					};
 					return (
 						<div data-testid="file-access-row" className="flex flex-col gap-2">
@@ -873,10 +890,10 @@ export function AgentSection({
 							{fileAccessError && <p role="alert" data-testid="file-access-config-error" className="text-xs text-red-500">{fileAccessError}</p>}
 							<div className="flex gap-2 pl-3">
 								<input value={folderInput} aria-label="Allowed folder path" data-testid="file-access-add" placeholder="Absolute path or ~/folder"
-									onChange={(event) => { setFolderInput(event.target.value); setFolderError(null); }}
+									onChange={(event) => { setFolderInput(event.target.value); setFolderError(null); setConfirmBroad(null); }}
 									onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); addFolder(); } }}
 									className="min-w-0 flex-1 rounded-sm border border-border bg-background px-2 py-1 font-ui text-xs" />
-								<button type="button" data-testid="file-access-add-button" disabled={!folderInput.trim()} onClick={addFolder} className="rounded-sm border border-border px-2 text-xs disabled:opacity-40">Add folder</button>
+								<button type="button" data-testid="file-access-add-button" disabled={!folderInput.trim()} onClick={addFolder} className="rounded-sm border border-border px-2 text-xs disabled:opacity-40">{confirmBroad && confirmBroad === folderInput.trim() ? "Add anyway" : "Add folder"}</button>
 							</div>
 							{folderError && <p role="alert" data-testid="file-access-input-error" className="pl-3 text-xs text-red-500">{folderError}</p>}
 							{folders.map((folder) => (

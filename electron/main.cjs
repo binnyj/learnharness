@@ -16,8 +16,8 @@
  *     read-only and native .node/dylib can't dlopen from one);
  *   - all mutable state under userData (never inside the .app bundle —
  *     translocated apps are read-only);
- *   - keys ride the child's ENV, never argv; auth.json (BYOK) is a flat
- *     {VAR: value} JSON map, plaintext, mode 0600 — server-managed since
+ *   - keys ride the child's ENV, never argv; auth.json (BYOK) is an encrypted
+ *     record with a Keychain wrapping key, mode 0600 — server-managed since
  *     the auth-keys wave (2026-09-19): the child reads/writes it DIRECTLY
  *     (LH_AUTH_FILE below) and reflects values into its own env. The old
  *     spawn-time env injection retired with that wave — a copy made here
@@ -97,7 +97,7 @@ if (process.argv.includes("--browser-service")) {
 			await app.whenReady();
 			// A hidden window keeps the app lifecycle ordinary on every
 			// platform (no window-all-closed handler is installed here).
-			const win = new BrowserWindow({ show: false });
+			const win = new BrowserWindow({ show: false, webPreferences: { sandbox: true, contextIsolation: true, nodeIntegration: false } });
 			await win.loadURL("about:blank");
 			// Window load is not a DevTools HTTP readiness barrier. Confirm the
 			// endpoint before both production and smoke clients see the handshake.
@@ -654,6 +654,7 @@ async function main() {
 	const url = devUrl ?? `http://127.0.0.1:${await freePort()}`;
 	if (!devUrl) {
 		desktopAPISecret = randomBytes(32).toString("hex");
+		await session.defaultSession.cookies.set({ url, name: "lh_desktop_session", value: desktopAPISecret, httpOnly: true, sameSite: "strict", path: "/" });
 		const ownedOrigin = new URL(url).origin;
 		// All URLs, not only /api: remove the header again on external redirects.
 		session.defaultSession.webRequest.onBeforeSendHeaders({ urls: ["<all_urls>"] }, (details, callback) => {
