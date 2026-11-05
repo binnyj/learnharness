@@ -5,6 +5,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import { standardFontsDir } from "./pdf-ops";
+import { PATHS } from "../../../config.ts";
 
 /**
  * Verification engines for sub-agents: demos use the app's own Electron
@@ -188,7 +189,9 @@ async function connectBrowserService(): Promise<import("puppeteer-core").Browser
 		const proc = spawn(binary, appArgs, {
 			// Cast: the sanitizer is pure over a loose record; NODE_ENV is
 			// always present in a real process.env.
-			env: browserServiceSpawnEnv(process.env) as NodeJS.ProcessEnv,
+			// The helper's browser profile stays in the data folder (owner,
+			// 2026-11-05) however the server was started; the launcher's value wins.
+			env: { LH_BROWSER_PROFILE: path.join(PATHS.data, "browser-profile"), ...browserServiceSpawnEnv(process.env) } as unknown as NodeJS.ProcessEnv,
 			stdio: ["ignore", "pipe", "pipe", "ipc"] as const,
 		});
 		browserServiceProc = proc;
@@ -269,6 +272,7 @@ async function withBrowserPage<T>(fn: (page: import("puppeteer-core").Page) => P
 
 	// Chrome fallback: per-job launch, close on the way out (old semantics).
 	const puppeteer = (await import("puppeteer-core")).default;
+	const strays = chromeStrayTempDirs();
 	const executablePath = resolveChromeExecutablePath();
 	const browser = await puppeteer.launch({
 		headless: true,
@@ -276,7 +280,9 @@ async function withBrowserPage<T>(fn: (page: import("puppeteer-core").Page) => P
 		// Explicit path when we found one; otherwise let puppeteer resolve the
 		// system Chrome install itself via the "chrome" channel.
 		...(executablePath ? { executablePath } : { channel: "chrome" as const }),
-		args: ["--disable-gpu", "--disable-dev-shm-usage"],
+		// No background fetches or updates. The profile itself lives under
+		// TMPDIR (data/tmp, set by the launcher).
+		args: ["--disable-gpu", "--disable-dev-shm-usage", "--disable-background-networking", "--disable-component-update", "--no-first-run", "--no-default-browser-check", "--disable-sync", "--disable-default-apps"],
 	});
 	try {
 		const page = await browser.newPage();
@@ -284,7 +290,37 @@ async function withBrowserPage<T>(fn: (page: import("puppeteer-core").Page) => P
 		return await fn(page);
 	} finally {
 		await browser.close().catch(() => {});
+		removeNewChromeStrays(strays);
 	}
+}
+
+/* Chrome on macOS creates an empty `com.google.Chrome.chrome_chrome_url_fetcher_*`
+ * folder in the per-user system temp folder at every launch, ignoring TMPDIR.
+ * Outputs stay in the repo (owner, 2026-11-05): after our own launch, remove
+ * the NEW, EMPTY ones that appeared during it. Anything with contents, or
+ * that existed before, is left alone. */
+const CHROME_STRAY = /^com\.google\.Chrome\.chrome_chrome_url_fetcher_\.[A-Za-z0-9]+$/;
+function systemTempDir(): string | null {
+	if (process.platform !== "darwin") return null;
+	try {
+		const { execFileSync } = createRequire(import.meta.url)("node:child_process") as typeof import("node:child_process");
+		return execFileSync("/usr/bin/getconf", ["DARWIN_USER_TEMP_DIR"], { encoding: "utf8", timeout: 2000 }).trim() || null;
+	} catch { return null; }
+}
+function chromeStrayTempDirs(): { dir: string; before: Set<string> } | null {
+	const dir = systemTempDir();
+	if (!dir) return null;
+	try { return { dir, before: new Set(fs.readdirSync(dir).filter((n) => CHROME_STRAY.test(n))) }; } catch { return null; }
+}
+function removeNewChromeStrays(snapshot: { dir: string; before: Set<string> } | null): void {
+	if (!snapshot) return;
+	try {
+		for (const name of fs.readdirSync(snapshot.dir)) {
+			if (!CHROME_STRAY.test(name) || snapshot.before.has(name)) continue;
+			const full = path.join(snapshot.dir, name);
+			try { if (fs.lstatSync(full).isDirectory() && fs.readdirSync(full).length === 0) fs.rmdirSync(full); } catch { /* not ours to force */ }
+		}
+	} catch { /* best effort */ }
 }
 
 /** A temp dir per invocation; removed in finally. */

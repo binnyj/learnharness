@@ -77,6 +77,11 @@ function serverEntry() {
 // instance of this very binary, and before the LH_DEV_URL redirect — the
 // helper owns no user data at all.
 if (process.argv.includes("--browser-service")) {
+	// The launcher keeps the helper's browser profile inside the repo's data
+	// folder (owner, 2026-11-05); without it Electron uses Application Support.
+	if (process.env.LH_BROWSER_PROFILE && path.isAbsolute(process.env.LH_BROWSER_PROFILE)) {
+		app.setPath("userData", process.env.LH_BROWSER_PROFILE);
+	}
 	const { waitForBrowserService } = require("./browser-service-readiness.cjs");
 	// Own the helper's entire startup lifetime, including the readiness wait.
 	const lifetime = new AbortController();

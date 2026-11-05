@@ -96,3 +96,5 @@ export { restrictDemoHtml } from "./demo-security.ts";
 export * from "./code-answer.ts";
 
 export * from "./code-runtime.ts";
+
+export * from "./phrase-splitter.ts";

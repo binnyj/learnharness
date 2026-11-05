@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Loader2Icon, MicIcon } from "lucide-react";
 import { useSettingsDialog } from "@/components/settings/settings-dialog";
 import { Hint } from "@/components/ui/hint";
-import { deepgramListenUrl, type DictationLanguage } from "@/src/core";
+import { deepgramListenUrl, freshSplitter, splitFlush, splitStep, type DictationEngine, type DictationLanguage, type SplitterState } from "@/src/core";
 import { useDictationLanguage } from "@/components/dictation-preference";
 import { setDictationActive } from "@/components/dictation-state";
 export { isDictationActive } from "@/components/dictation-state";
@@ -109,6 +109,32 @@ export const DEEPGRAM_KEY_ID = "DEEPGRAM_API_KEY";
  * instead. Exported for pins; the errored idle button's click recognizes
  * it and deep-links Settings → Keys → the Deepgram row. */
 export const DICTATION_KEYLESS = "Dictation needs a Deepgram key";
+
+/** Local engine selected but the speech model isn't downloaded yet; the
+ *  errored button's click opens Settings → Providers → Dictation. */
+export const DICTATION_MODEL_MISSING = "Download the local speech model in Settings";
+
+/** Is the local Whisper model installed? (Sizes only; the server
+ *  re-verifies every fingerprint before it loads.) */
+async function localModelReady(): Promise<boolean> {
+	try {
+		const res = await fetch("/api/stt/local/model");
+		return res.ok && ((await res.json()) as { state?: string }).state === "ready";
+	} catch { return false; }
+}
+
+/** One phrase → text, on this machine (POST /api/stt/local/transcribe). */
+async function transcribePhrase(phrase: Int16Array): Promise<string> {
+	const res = await fetch("/api/stt/local/transcribe", {
+		method: "POST",
+		headers: { "Content-Type": "application/octet-stream" },
+		body: new Blob([phrase.slice().buffer as ArrayBuffer]),
+	});
+	const data = (await res.json().catch(() => ({}))) as { text?: string; error?: string; code?: string };
+	if (res.status === 503 && data.code === "model_missing") throw new Error(DICTATION_MODEL_MISSING);
+	if (!res.ok) throw new Error(data.error ?? `Local transcription failed (${res.status})`);
+	return data.text ?? "";
+}
 
 /** Mint a fresh short-lived token (the route holds the real key
  *  server-side). Module-level: the start path's warm cache and the
@@ -282,7 +308,7 @@ export type Dictation = {
  * question waits.
  */
 export function useDictation({ append }: { append: (text: string) => void }): Dictation {
-	const { getLanguage } = useDictationLanguage();
+	const { getLanguage, getEngine } = useDictationLanguage();
 	const [phase, setPhase] = useState<DictationPhase>("idle");
 	const [error, setError] = useState<string | null>(null);
 	/** Latest RMS from the worklet — the meter samples this (dictate pattern). */
@@ -320,6 +346,11 @@ export function useDictation({ append }: { append: (text: string) => void }): Di
 	/** Resolvers waiting for the run to fully end (finish(), owner
 	 *  2026-10-01): released by cleanup() — every terminal path runs it. */
 	const waitersRef = useRef<Array<() => void>>([]);
+	/** Local engine (owner, 2026-11-05): this run's engine, the phrase
+	 *  splitter, and the ordered chain of in-flight transcriptions. */
+	const engineRef = useRef<DictationEngine>("local");
+	const splitterRef = useRef<SplitterState>(freshSplitter());
+	const chainRef = useRef<Promise<void>>(Promise.resolve());
 
 	/** Flush the buffered transcript into the primary input — question claim
 	 *  first, composer fallback. Called exactly once per run, at cleanup; the
@@ -362,7 +393,22 @@ export function useDictation({ append }: { append: (text: string) => void }): Di
 		for (const w of waitersRef.current.splice(0)) w();
 		// Pre-mint for the next run (mitigation D) — best-effort; a keyless
 		// page just doesn't warm.
-		if (warmNext) warmTokens.refresh();
+		if (warmNext && engineRef.current === "deepgram") warmTokens.refresh();
+	}, []);
+
+	/** Local engine: transcribe a finished phrase on this machine. Phrases
+	 *  are chained so their text lands in the order they were spoken. */
+	const queuePhrase = useCallback((gen: number, phrase: Int16Array) => {
+		chainRef.current = chainRef.current.then(async () => {
+			if (gen !== genRef.current) return;
+			try {
+				const text = await transcribePhrase(phrase);
+				if (gen === genRef.current && text) bufferRef.current.push(text);
+			} catch (e) {
+				if (gen !== genRef.current) return;
+				setError(e instanceof Error ? e.message : "Local transcription failed");
+			}
+		});
 	}, []);
 
 	/** Open the Deepgram socket and wire its messages. `gen` guards staleness. */
@@ -441,10 +487,21 @@ export function useDictation({ append }: { append: (text: string) => void }): Di
 		let language: DictationLanguage;
 		try {
 			language = await getLanguage();
+			engineRef.current = await getEngine();
 		} catch (e) {
 			if (gen !== genRef.current) return;
 			setError(e instanceof Error ? e.message : "Dictation language unavailable");
 			cleanup();
+			return;
+		}
+		if (gen !== genRef.current) return;
+		const local = engineRef.current === "local";
+		splitterRef.current = freshSplitter();
+		chainRef.current = Promise.resolve();
+		if (local && !(await localModelReady())) {
+			if (gen !== genRef.current) return;
+			setError(DICTATION_MODEL_MISSING);
+			cleanup(false);
 			return;
 		}
 		if (gen !== genRef.current) return;
@@ -455,7 +512,8 @@ export function useDictation({ append }: { append: (text: string) => void }): Di
 		// the token runs concurrently with it. 127.0.0.1 is a secure
 		// context, so getUserMedia works without TLS; macOS TCC prompts on
 		// first use.
-		const tokenPromise = warmTokens.mint();
+		// The local engine needs no token: audio stays on this machine.
+		const tokenPromise = local ? Promise.resolve("") : warmTokens.mint();
 		tokenPromise.catch(() => {}); // surfaced below; no unhandled rejection
 		const micPromise = navigator.mediaDevices.getUserMedia({
 			audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true, autoGainControl: true },
@@ -482,6 +540,11 @@ export function useDictation({ append }: { append: (text: string) => void }): Di
 				const msg = e.data as { type: string; rms?: number; buffer?: ArrayBuffer };
 				if (msg.type === "level") {
 					levelRef.current = msg.rms ?? 0; // never reset to zero (dictate pattern)
+				} else if (msg.type === "audio" && local) {
+					// Local engine: cut phrases at pauses and transcribe each.
+					const step = splitStep(splitterRef.current, new Int16Array(msg.buffer!));
+					splitterRef.current = step.state;
+					if (step.phrase) queuePhrase(gen, step.phrase);
 				} else if (msg.type === "audio") {
 					const ws = wsRef.current;
 					if (ws && ws.readyState === WebSocket.OPEN) ws.send(msg.buffer!);
@@ -522,10 +585,14 @@ export function useDictation({ append }: { append: (text: string) => void }): Di
 			return;
 		}
 		if (gen !== genRef.current) return;
+		if (local) {
+			setPhase("recording");
+			return;
+		}
 		// Mitigation B: the handshake fires the moment the graph is live,
 		// overlapping any remaining token wait — mic-gated, never before it.
 		openSocket(gen, token, language);
-	}, [openSocket, cleanup, getLanguage]);
+	}, [openSocket, cleanup, getLanguage, getEngine, queuePhrase]);
 
 	const stop = useCallback(() => {
 		const gen = genRef.current;
@@ -541,6 +608,20 @@ export function useDictation({ append }: { append: (text: string) => void }): Di
 		workletRef.current?.disconnect();
 		workletRef.current = null;
 
+		if (engineRef.current === "local") {
+			// The phrase in progress is the last one; its text (and any still
+			// in flight) lands before the run ends. 15 s is the backstop.
+			const last = splitFlush(splitterRef.current);
+			splitterRef.current = freshSplitter();
+			if (last) queuePhrase(gen, last);
+			safetyRef.current = setTimeout(() => {
+				if (gen === genRef.current) cleanup();
+			}, 15_000);
+			void chainRef.current.then(() => {
+				if (gen === genRef.current) cleanup();
+			});
+			return;
+		}
 		const ws = wsRef.current;
 		if (ws && ws.readyState === WebSocket.OPEN) {
 			try {
@@ -557,7 +638,7 @@ export function useDictation({ append }: { append: (text: string) => void }): Di
 		} else {
 			cleanup();
 		}
-	}, [phase, cleanup]);
+	}, [phase, cleanup, queuePhrase]);
 
 	const cancel = useCallback(() => {
 		if (phase === "idle") return;
@@ -600,7 +681,8 @@ export function useDictation({ append }: { append: (text: string) => void }): Di
 	// page owns ONE hook instance, and only the mounted page's listener is
 	// attached.
 	useEffect(() => {
-		warmTokens.refresh(); // pre-mint at mount (mitigation D) — silent if keyless
+		// Pre-mint at mount (mitigation D) — Deepgram only; local needs no token.
+		void getEngine().then((engine) => { if (engine === "deepgram") warmTokens.refresh(); }).catch(() => {});
 		return () => {
 			// Navigation cancels capture: invalidate every pending await before
 			// releasing resources, and never append into a different page's input.
@@ -649,7 +731,9 @@ export function DictationBar({ dictation }: { dictation: Dictation }) {
 	 *  idle button deep-links Settings → Keys → the Deepgram row and clears
 	 *  the error — the surface is clean when the user returns. Any other
 	 *  error keeps the old behavior (click = retry, which clears). */
-	const keyless = error === DICTATION_KEYLESS;
+	// Both setup errors (no Deepgram key / no local model) open the
+	// Providers → Dictation group on click.
+	const keyless = error === DICTATION_KEYLESS || error === DICTATION_MODEL_MISSING;
 	const [levels, setLevels] = useState<number[]>(() => new Array(METER_CELLS).fill(0));
 	/** Adaptive cell count (owner round 2): derived from the meter's
 	 *  measured width — narrow rows show fewer bars instead of

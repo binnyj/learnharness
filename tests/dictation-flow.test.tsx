@@ -39,16 +39,27 @@ class AudioGraph {
 	audioWorklet = { addModule: async () => {} };
 	createMediaStreamSource() { return { connect() {}, disconnect() {} }; }
 }
-class Worklet { port = {}; connect() {} disconnect() {} }
+class Worklet {
+	static all: Worklet[] = [];
+	port: { onmessage?: (e: { data: unknown }) => void } = {};
+	constructor() { Worklet.all.push(this); }
+	connect() {} disconnect() {}
+	/** Deliver one 128 ms mic frame, as the pcm-capture worklet does. */
+	audio(frame: Int16Array) { this.port.onmessage?.({ data: { type: "audio", buffer: frame.buffer } }); }
+}
 
 const globals = globalThis as Record<string, unknown>;
 let restore: (() => void) | undefined;
 let dispose: (() => Promise<void>) | undefined;
 
-async function fixture(language: "pl" | "en" = "pl", delayedRead?: Promise<Response>) {
+// These tests cover the Deepgram engine; local Whisper is the factory default.
+async function fixture(language: "pl" | "en" = "pl", delayedRead?: Promise<Response>, engine: "deepgram" | "local" = "deepgram") {
 	const dom = parseHTML("<html><body><div id='root'></div></body></html>");
 	const state = {
-		record: { version: 1, dictation: { language } } as UserSettings,
+		record: { version: 1, dictation: { language, engine } } as UserSettings,
+		modelReady: true,
+		transcribed: [] as number[],
+		tokenFetches: 0,
 		nextRead: delayedRead,
 		nextWrite: undefined as Promise<Response> | undefined,
 		nextMic: undefined as Promise<{ getTracks: () => { stop: () => void }[] }> | undefined,
@@ -60,6 +71,7 @@ async function fixture(language: "pl" | "en" = "pl", delayedRead?: Promise<Respo
 		appends: [] as string[],
 	};
 	Socket.all = [];
+	Worklet.all = [];
 	const previous = new Map<string, PropertyDescriptor | undefined>();
 	for (const [key, value] of Object.entries({
 		React, window: dom.window, document: dom.document, CustomEvent: dom.window.CustomEvent,
@@ -71,7 +83,13 @@ async function fixture(language: "pl" | "en" = "pl", delayedRead?: Promise<Respo
 		WebSocket: Socket, AudioContext: AudioGraph, AudioWorkletNode: Worklet,
 		IS_REACT_ACT_ENVIRONMENT: true,
 		fetch: async (url: string, init?: RequestInit) => {
-			if (url === "/api/stt/token") return Response.json({ token: "test-token" });
+			if (url === "/api/stt/token") { state.tokenFetches++; return Response.json({ token: "test-token" }); }
+			if (url === "/api/stt/local/model") return Response.json({ state: state.modelReady ? "ready" : "missing", totalBytes: 77_000_000 });
+			if (url === "/api/stt/local/transcribe") {
+				const bytes = (await (init!.body as Blob).arrayBuffer()).byteLength;
+				state.transcribed.push(bytes);
+				return Response.json({ text: `phrase ${state.transcribed.length}` });
+			}
 			if (url === "/api/settings") {
 				state.reads++;
 				if (state.nextRead) { const response = state.nextRead; state.nextRead = undefined; return response; }
@@ -145,7 +163,7 @@ test("waits for the saved language; reconnect preserves it and finals still flus
 	await act(async () => { first.open(); first.final("Cześć"); });
 	assert.deepEqual(f.state.appends, []);
 	// A preference refresh during capture affects the next run only.
-	f.state.record.dictation = { language: "multi" };
+	f.state.record.dictation = { language: "multi", engine: "deepgram" };
 	await act(async () => { notifySettingsSaved("dictation"); });
 	await act(async () => { first.end(1006); });
 	const second = Socket.all[1]!;
@@ -209,7 +227,7 @@ test("a shortcut waits for a language save made by the separate settings control
 	await act(async () => { saved = f.setting.save("multi"); });
 	await act(async () => { f.dictation.toggle(); });
 	assert.equal(f.state.captures, 0);
-	f.state.record.dictation = { language: "multi" };
+	f.state.record.dictation = { language: "multi", engine: "deepgram" };
 	await act(async () => { write.resolve(Response.json({ settings: f.state.record })); await saved; });
 	assert.equal(Socket.all[0]!.language, "multi");
 });
@@ -219,7 +237,7 @@ test("a saved-language refresh gates capture even when an older choice is cached
 	await f.mount();
 	const read = deferred<Response>();
 	f.state.nextRead = read.promise;
-	f.state.record.dictation = { language: "multi" };
+	f.state.record.dictation = { language: "multi", engine: "deepgram" };
 	await act(async () => { notifySettingsSaved("dictation"); });
 	await act(async () => { f.dictation.toggle(); });
 	assert.equal(f.state.captures, 0);
@@ -235,7 +253,7 @@ test("a stale settings refresh cannot overwrite a newer confirmed choice", async
 	f.state.nextRead = read.promise;
 	await act(async () => { notifySettingsSaved("dictation"); });
 	await act(async () => { await f.setting.save("multi"); });
-	await act(async () => { read.resolve(Response.json({ settings: { version: 1, dictation: { language: "pl" } } })); });
+	await act(async () => { read.resolve(Response.json({ settings: { version: 1, dictation: { language: "pl", engine: "deepgram" } } })); });
 	assert.equal(f.setting.language, "multi");
 	await act(async () => { f.dictation.toggle(); });
 	assert.equal(Socket.all[0]!.language, "multi");
@@ -263,7 +281,7 @@ test("reopening settings during a save shares its busy state and rejects a compe
 	await f.remount();
 	assert.equal(f.setting.saving, true);
 	assert.equal(await f.setting.save("en"), false, "a different selection cannot inherit another write's success");
-	f.state.record.dictation = { language: "multi" };
+	f.state.record.dictation = { language: "multi", engine: "deepgram" };
 	await act(async () => { write.resolve(Response.json({ settings: f.state.record })); await first; });
 	assert.equal(f.setting.saving, false);
 	assert.equal(f.setting.language, "multi");
@@ -319,4 +337,45 @@ test("microphone permission resolving after unmount immediately stops the late s
 	assert.equal(f.state.stops, 1);
 	assert.equal(Socket.all.length, 0);
 	assert.equal(isDictationActive(), false);
+});
+
+// ─── Local Whisper engine (owner, 2026-11-05) ────────────────────────────────
+
+const speechFrame = () => Int16Array.from({ length: 2048 }, (_, i) => Math.round(Math.sin(i / 5) * 8000));
+const silentFrame = () => new Int16Array(2048);
+
+test("local engine: without the model it points to Settings and never opens the mic", async () => {
+	const f = await fixture("en", undefined, "local");
+	f.state.modelReady = false;
+	await f.mount();
+	await act(async () => { f.dictation.toggle(); });
+	await act(async () => { await new Promise((r) => setTimeout(r, 0)); });
+	assert.equal(f.dictation.error, "Download the local speech model in Settings");
+	assert.equal(f.state.captures, 0, "no microphone");
+	assert.equal(Socket.all.length, 0, "no cloud socket");
+	assert.equal(f.dictation.phase, "idle");
+});
+
+test("local engine: phrases cut at pauses are transcribed on this machine and typed in once, in order", async () => {
+	const f = await fixture("en", undefined, "local");
+	await f.mount();
+	await act(async () => { f.dictation.toggle(); });
+	await act(async () => { await new Promise((r) => setTimeout(r, 0)); });
+	assert.equal(f.dictation.phase, "recording");
+	assert.equal(Socket.all.length, 0, "no Deepgram socket");
+	assert.equal(f.state.tokenFetches, 0, "no Deepgram token");
+	const worklet = Worklet.all.at(-1)!;
+	await act(async () => {
+		for (let i = 0; i < 8; i++) worklet.audio(speechFrame());
+		for (let i = 0; i < 7; i++) worklet.audio(silentFrame()); // a pause ends phrase 1
+		for (let i = 0; i < 5; i++) worklet.audio(speechFrame()); // phrase 2 in progress
+	});
+	assert.equal(f.state.transcribed.length, 1, "phrase 1 sent at the pause");
+	assert.deepEqual(f.state.appends, [], "text waits for the end of the run");
+	await act(async () => { f.dictation.toggle(); });
+	await act(async () => { await new Promise((r) => setTimeout(r, 0)); });
+	assert.equal(f.state.transcribed.length, 2, "the phrase in progress is sent on stop");
+	assert.deepEqual(f.state.appends, ["phrase 1 phrase 2"]);
+	assert.equal(f.state.stops, 1, "microphone released");
+	assert.equal(f.dictation.phase, "idle");
 });

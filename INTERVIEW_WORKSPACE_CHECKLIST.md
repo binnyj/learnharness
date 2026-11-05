@@ -269,3 +269,9 @@ Acceptance: later sessions can use prior evidence without treating an AI judgmen
   - Drafts were cleared before the server accepted the answer.
 - Live model check (gpt-6.1-sol, your real data): probing asked for code and graded a buggy answer precisely; practice posed a short code problem, concluded it as solved and paused correctly. Two sessions from this check are in your session list.
 - Not yet done: a teach-phase `code` check after the plan; a practice miss-and-nudge; a compact-window layout; your sign-off on the security gate.
+
+## Local dictation (2026-11-05)
+
+- [x] Local Whisper dictation is the default engine, so audio stays on this machine; Deepgram remains an option. The model is pinned to one revision and every file is fingerprint-verified; it downloads only from a button in Settings → Providers → Dictation.
+- [x] Checked live in a separate copy: the download ran from 0% to Ready and verified; generated speech was transcribed exactly through the signed-in route; requests without sign-in and oversized audio were refused.
+- [ ] Not yet tried with a real microphone in the browser.

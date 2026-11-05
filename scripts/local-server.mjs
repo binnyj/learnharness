@@ -1,6 +1,9 @@
 import { randomBytes } from "node:crypto";
 import { spawn } from "node:child_process";
 import { createRequire } from "node:module";
+import fs from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 const require = createRequire(import.meta.url);
 const mode = process.argv[2] === "start" ? "start" : "dev";
 const desktop = process.argv.includes("--desktop");
@@ -17,7 +20,19 @@ if (!/^\d+$/.test(port) || +port < 1024 || +port > 65535) throw new Error("Inval
 const secret = randomBytes(32).toString("hex");
 const origin = `http://127.0.0.1:${port}`;
 const url = `${origin}/unlock#${secret}`;
-const env = { ...process.env, LH_WEB_API_SECRET: secret, LH_WEB_ORIGIN: origin };
+// Keep every file the app writes inside its data folder (owner, 2026-11-05):
+// the temp folder for the server and everything it starts (esbuild, the
+// demo browser, Claude Code's working folder, research downloads, renders),
+// and the demo helper's browser profile. data/ is git-ignored.
+const repo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+const dataRoot = process.env.LH_DATA_DIR ? path.resolve(process.env.LH_DATA_DIR) : path.join(repo, "data");
+const tmp = path.join(dataRoot, "tmp");
+const browserProfile = path.join(dataRoot, "browser-profile");
+// No server is running yet, so leftovers from earlier runs can go.
+fs.rmSync(tmp, { recursive: true, force: true });
+fs.mkdirSync(tmp, { recursive: true, mode: 0o700 });
+fs.mkdirSync(browserProfile, { recursive: true, mode: 0o700 });
+const env = { ...process.env, LH_WEB_API_SECRET: secret, LH_WEB_ORIGIN: origin, TMPDIR: tmp, TMP: tmp, TEMP: tmp, LH_BROWSER_PROFILE: browserProfile };
 const child = spawn(process.execPath, [require.resolve("next/dist/bin/next"), mode, ...(webpack ? ["--webpack"] : []), "--hostname", "127.0.0.1", "--port", port], { env, stdio: "inherit" });
 let shell;
 console.log(`\nOpen this private local sign-in link in your browser:\n${url}\nDo not share the link. Restarting the server revokes browser sessions.\n`);
