@@ -120,6 +120,8 @@ const nextConfig: NextConfig = {
 		"@silvia-odwyer/photon-node", // CJS loads its adjacent WASM from disk
 		"@resvg/resvg-js", // native binding — same
 		"esbuild", // Phase 2 code answers: native binary, spawned at runtime
+		"@huggingface/transformers", // local dictation: loads onnxruntime-node natively
+		"onnxruntime-node", // native binding — bundling breaks the .node require
 	],
 };
 

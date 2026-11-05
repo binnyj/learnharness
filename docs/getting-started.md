@@ -27,11 +27,10 @@ Sessions are saved locally, including earlier messages when context is compacted
 
 ## Dictation
 
-1. Create a [Deepgram API key](https://console.deepgram.com/) with the **Member role or higher**, required for [short-lived token minting](https://developers.deepgram.com/reference/auth/tokens/grant).
-2. Add it under **Settings → Providers → Dictation** and choose the language below the key. **Multilingual** supports automatic recognition and mixed-language speech.
-3. Use the microphone or **Mod+D** to start and stop. Review the text before sending. **Esc cancellation discards the pending transcript**; stop normally to keep it.
+Use the microphone or **Mod+D** to start and stop. Review the text before sending. **Esc cancellation discards the pending transcript**; stop normally to keep it. Choose the engine under **Settings → Providers → Dictation**:
 
-Audio streams from your browser directly to Deepgram using a short-lived token. A `403 Insufficient permissions` error while obtaining that token can mean the key's role is insufficient.
+- **Local Whisper** (default): speech is transcribed on this computer and audio never leaves it. Click **Download model** once. It fetches about 81 MB of English Whisper files (`onnx-community/whisper-base.en`, one pinned revision) from Hugging Face, checks every file against a built-in SHA-256 fingerprint, and installs only if all of them match. After that it works offline. Each phrase appears after a short pause in your speech.
+- **Deepgram** (cloud): create a [Deepgram API key](https://console.deepgram.com/) with the **Member role or higher**, required for [short-lived token minting](https://developers.deepgram.com/reference/auth/tokens/grant), and add it in the same group. Choose the language there; **Multilingual** supports automatic recognition and mixed-language speech. Audio streams from your browser directly to Deepgram using a short-lived token. A `403 Insufficient permissions` error while obtaining that token can mean the key's role is insufficient.
 
 ## Use local files in a session
 

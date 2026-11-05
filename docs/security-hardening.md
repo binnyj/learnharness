@@ -121,3 +121,29 @@ Scope: learner and tutor-authored code in `code`/`probe_code` questions and prac
   - the encrypted credential writer's staging file
 - Adding a very broad folder asks for a second click in the editor. That check runs in the browser only; the server accepts whatever folder list is saved.
 - Credentials stay encrypted. The encrypted writer refuses to write through a symlinked credential file instead of replacing it, and retries Windows sharing violations like main's atomic-write helper.
+
+## Local dictation (2026-11-05)
+
+Local Whisper is the default dictation engine; Deepgram remains available.
+
+- **Model:** `onnx-community/whisper-base.en`, pinned to revision `51eefc0af78b103839eda9e7e4f4186acc6517fe`. Only the 12 files Whisper needs are downloaded (configuration and tokenizer JSON plus the quantized encoder and decoder ONNX, about 81 MB). Each has a SHA-256 fingerprint and exact size written in `src/server/local-stt.ts`. ONNX files are model data, not executable code.
+- **Download:** only when the learner clicks **Download model**. Files go over HTTPS into a staging folder; a file is refused once it exceeds its pinned size; the folder is moved into `data/models/` only after every file verifies; any failure deletes the staging folder and installs nothing. Files are owner-only (0600).
+- **Run time:** every fingerprint is re-checked before the speech pipeline loads. transformers.js is configured to read local files only: remote models off, no extra cache folders. Inference runs on the CPU through onnxruntime-node's prebuilt macOS binary; its install script downloads nothing on macOS and was left disabled.
+- **Audio:** the browser sends each phrase as raw 16 kHz PCM to `/api/stt/local/transcribe` on the local server, behind the sign-in check. Phrases are limited to 0.2–30 seconds, transcribed in memory, and never written to disk or sent anywhere else.
+- **Dependency:** `@huggingface/transformers@4.3.2`, pinned exactly. It also brings `onnxruntime-node`, `onnxruntime-web` and `sharp`.
+
+## Outputs stay in the repo (2026-11-05)
+
+With the launcher (`npm run dev`, `npm start`, `npm run desktop:dev`), the app writes only inside its data folder (`data/` by default, or `LH_DATA_DIR`) and the repo's credential files:
+
+- **Temp files:** the launcher sets `TMPDIR`/`TMP`/`TEMP` to `data/tmp` for the server and everything it starts (esbuild, the demo browser, Claude Code's working folder, research PDF downloads, demo/SVG/PDF renders). It empties `data/tmp` at each start.
+- **The demo browser's profile:** `data/browser-profile`. The Electron helper honors `LH_BROWSER_PROFILE`; the Chrome fallback's profile lives under `TMPDIR`. Chrome on macOS also creates an empty `com.google.Chrome.chrome_chrome_url_fetcher_*` folder in the system temp folder at every launch, ignoring `TMPDIR`; the app removes the new, empty ones after each of its own Chrome launches.
+- **Tests:** `npm test` sets `TMPDIR` to `data/tmp`.
+- Both folders are created owner-only (0700). `data/` is git-ignored and excluded from type checking and lint.
+
+Intentionally outside the repo (owner decisions):
+- the credential encryption key in macOS Keychain
+- the Claude Code CLI's own `~/.claude` (only when that provider is used)
+- npm/Next tooling caches
+
+Reads outside the repo: only the learner's allowed folders, plus the file guard's listing of names in the home folder, which it uses to find protected locations regardless of capitalization. The desktop app (`desktop:dev`/packaged) keeps its own Electron profile in Application Support; that mode isn't covered here.

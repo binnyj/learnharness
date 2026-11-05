@@ -58,3 +58,4 @@ export { customProviderGet, customProviderMutation } from "./custom-provider-htt
 
 export { LOCAL_COOKIE, sameSecret, trustedLocalRequest } from "./local-access.ts";
 export { compileCode } from "./code-compile.ts";
+export { downloadLocalSttModel, localSttStatus, LocalSttUnavailable, LOCAL_STT_TOTAL_BYTES, MAX_PHRASE_BYTES, transcribeLocally } from "./local-stt.ts";

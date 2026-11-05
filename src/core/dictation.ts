@@ -82,6 +82,15 @@ export function isDictationLanguage(value: unknown): value is DictationLanguage 
 }
 
 /** Only language varies. Keep the owner's tuned streaming parameters. */
+/** Where dictated speech is turned into text (owner, 2026-11-05): `local`
+ *  runs Whisper on this machine — audio never leaves it; `deepgram` streams
+ *  to Deepgram's cloud and needs a key. */
+export const DICTATION_ENGINES = ["local", "deepgram"] as const;
+export type DictationEngine = (typeof DICTATION_ENGINES)[number];
+export function isDictationEngine(value: unknown): value is DictationEngine {
+	return typeof value === "string" && (DICTATION_ENGINES as readonly string[]).includes(value);
+}
+
 export function deepgramListenUrl(language: DictationLanguage): string {
 	return "wss://api.deepgram.com/v1/listen" +
 		"?model=nova-3&encoding=linear16&sample_rate=16000&channels=1" +

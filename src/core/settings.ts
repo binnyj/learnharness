@@ -35,7 +35,7 @@ import { CLAUDE_CODE_PROVIDER } from "./contracts/claude-code.ts";
 import type { ModelRole } from "../../config.ts";
 import type { ChatSettings } from "./contracts/chat.ts";
 import { isSearchEngineId, type SearchEngineId } from "./search.ts";
-import { isDictationLanguage, type DictationLanguage } from "./dictation.ts";
+import { isDictationEngine, isDictationLanguage, type DictationEngine, type DictationLanguage } from "./dictation.ts";
 import { parseFileAccessSettings, type FileAccessSettings } from "./file-access.ts";
 
 /** The schema version this code understands. Bump ONLY for breaking shape
@@ -340,6 +340,8 @@ export interface GeneralSettings {
 /** One app-wide dictation preference, shared by every composer. */
 export interface DictationSettings {
 	language?: DictationLanguage;
+	/** Absent = local Whisper (the factory engine). */
+	engine?: DictationEngine;
 }
 
 /** Agent settings — everything about the non-conversation machinery. */
@@ -515,7 +517,7 @@ export interface FactorySettings {
 export const FACTORY_SETTINGS: FactorySettings = {
 	version: CURRENT_SETTINGS_VERSION,
 	general: { autoUpdate: true },
-	dictation: { language: "en" },
+	dictation: { language: "en", engine: "local" },
 	appearance: {
 		mode: "dark",
 		background: null, // the dark default (#141414) lives in the mode's derivation curve
@@ -822,10 +824,11 @@ export function sanitizeUserSettings(raw: unknown): UserSettings | null {
 	}
 	if (r.dictation !== undefined) {
 		const raw = r.dictation;
-		out.dictation = raw !== null && typeof raw === "object" && !Array.isArray(raw) &&
-			isDictationLanguage((raw as Record<string, unknown>).language)
-			? { language: (raw as DictationSettings).language }
-			: {};
+		const d = raw !== null && typeof raw === "object" && !Array.isArray(raw) ? raw as Record<string, unknown> : {};
+		out.dictation = {
+			...(isDictationLanguage(d.language) ? { language: d.language } : {}),
+			...(isDictationEngine(d.engine) ? { engine: d.engine } : {}),
+		};
 	}
 	if (r.claudeCode !== undefined) {
 		const raw = r.claudeCode;

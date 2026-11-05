@@ -14,7 +14,9 @@ type LanguagePreference = ReturnType<typeof useDictationLanguage>;
 export function DictationLanguageSetting() {
 	const preference = useDictationLanguage();
 	const active = useDictationActive();
-	return <SettingsRow label="Language" testid="row-dictation-language" dimmed={active}>
+	// The local model is English-only; the language applies to Deepgram.
+	const local = (preference.engine ?? "local") === "local";
+	return <SettingsRow label="Language" hint={local ? "Used by Deepgram; Local Whisper is English" : undefined} testid="row-dictation-language" dimmed={active || local}>
 		<DictationLanguagePicker preference={preference} disabled={active} />
 	</SettingsRow>;
 }
