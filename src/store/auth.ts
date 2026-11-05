@@ -30,10 +30,9 @@ function readMap(strict = false): Record<string, string> {
 	}
 }
 
-/** Write the map atomically at mode 0600: a partial write must never
- *  leave a 0644 file (secrets) or a truncated JSON (looks like "no keys").
- *  tmp-in-same-dir + rename keeps the swap atomic; chmod BEFORE the
- *  rename so the mode never exists relaxed on the final path. */
+/** Write the map encrypted and atomically at mode 0600: secure-json stages
+ *  a 0600 temp file, verifies it decrypts to the same text, then renames —
+ *  a partial write never leaves a relaxed or truncated credential file. */
 function writeMap(map: Record<string, unknown>): void {
 	writeSecureText(AUTH_FILE, JSON.stringify(map));
 }

@@ -45,6 +45,20 @@ function decode(text, secret = key()) {
  decipher.setAuthTag(Buffer.from(v.tag, "base64"));
  return Buffer.concat([decipher.update(Buffer.from(v.data, "base64")), decipher.final()]).toString("utf8");
 }
+/** Windows sharing violations (a scanner or editor holding the file) are
+ * retried briefly, like src/store/atomic-write.ts; credentials never fall
+ * back to an in-place write. */
+function renameRetrying(temporary, file) {
+ const deadline = Date.now() + 1000;
+ for (let delay = 5; ; delay = Math.min(delay * 2, 40)) {
+  try { fs.renameSync(temporary, file); return; }
+  catch (error) {
+   const sharing = process.platform === "win32" && ["EPERM", "EACCES", "EBUSY"].includes(error && error.code);
+   if (!sharing || Date.now() >= deadline) throw error;
+   Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, delay);
+  }
+ }
+}
 function writeSecureText(file, text) {
  JSON.parse(text);
  const encrypted = encode(text);
@@ -55,7 +69,7 @@ function writeSecureText(file, text) {
   fd = fs.openSync(temporary, "wx", 0o600); fs.writeFileSync(fd, encrypted); fs.fsyncSync(fd); fs.closeSync(fd); fd = undefined;
   // Verify the bytes actually written before replacing the existing credential.
   if (decode(fs.readFileSync(temporary, "utf8")) !== text) throw new Error("Credential verification failed.");
-  fs.renameSync(temporary, file);
+  renameRetrying(temporary, file);
  } finally { if (fd !== undefined) fs.closeSync(fd); try { fs.unlinkSync(temporary); } catch {} }
 }
 function readSecureText(file, validate = JSON.parse) {

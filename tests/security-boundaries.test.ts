@@ -8,7 +8,13 @@ const require = createRequire(import.meta.url);
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "lh-security-check-"));
 process.env.LH_DATA_DIR = path.join(tmp, "data");
 process.env.LH_AUTH_FILE = path.join(tmp, "auth.json");
-const { authorizeSourcePath } = await import("../src/agent/tools/source-access.ts");
+const { resolveSourcePath, MAX_SOURCE_FILE_BYTES } = await import("../src/agent/tools/fs-shared.ts");
+const { setFileAccessPolicy } = await import("../src/agent/tools/file-access.ts");
+const { fileAccessPolicy } = await import("../src/server/file-access.ts");
+const { readFileAccessSettings, readSettings } = await import("../src/store/settings.ts");
+// The server wires the settings-backed policy at its composition root; do the same.
+setFileAccessPolicy(fileAccessPolicy);
+const authorizeSourcePath = (p: string) => resolveSourcePath(p);
 const { readTool } = await import("../src/agent/tools/read.ts");
 const { lsTool } = await import("../src/agent/tools/ls.ts");
 const { findTool } = await import("../src/agent/tools/find.ts");
@@ -22,12 +28,15 @@ const allowed = path.join(tmp, "lessons"), outside = path.join(tmp, "outside");
 fs.mkdirSync(allowed); fs.mkdirSync(outside); fs.mkdirSync(process.env.LH_DATA_DIR);
 const good = path.join(allowed, "lesson.txt"), secretFile = path.join(outside, "private.txt");
 fs.writeFileSync(good, "learning content"); fs.writeFileSync(secretFile, "PRIVATE");
-function grant(roots: string[]) { fs.writeFileSync(path.join(process.env.LH_DATA_DIR!, "settings.json"), JSON.stringify({ security: { learningFolders: roots.map(p => fs.realpathSync(p)) } })); }
+function settings(record: unknown) { fs.writeFileSync(path.join(process.env.LH_DATA_DIR!, "settings.json"), JSON.stringify(record)); }
+function grant(roots: string[]) { settings({ version: 1, agent: { fileAccess: { restricted: true, folders: roots.map(p => fs.realpathSync(p)) } } }); }
 after(() => fs.rmSync(tmp, { recursive: true, force: true }));
 test("all learner file entry points deny access before grants", async () => {
  grant([]);
  for (const invoke of [() => readTool.execute("security", {path:good}), () => lsTool.execute("security", {path:allowed}), () => findTool.execute("security", {path:allowed,pattern:"*"}), () => grepTool.execute("security",{path:allowed,pattern:"content"})]) await assert.rejects(invoke, /denied/);
- await assert.rejects(() => runPdfReaderAgent({path:good,question:"read"}), /denied/);
+ // The PDF reader reports a denial as a failed brief rather than throwing.
+ const pdf = await runPdfReaderAgent({path:good,question:"read"}).then(r => r.brief, (e: Error) => e.message);
+ assert.match(pdf, /denied/);
 });
 test("grants allow ordinary reading but reject traversal, symlinks, secrets and revoked access", async () => {
  grant([allowed]);
@@ -55,13 +64,25 @@ test("protected names inside an approved folder stay blocked; ordinary files and
  for (const f of blocked) assert.throws(() => authorizeSourcePath(path.join(allowed, f)), /denied/, f);
  for (const f of open) assert.equal(authorizeSourcePath(path.join(allowed, f)), fs.realpathSync(path.join(allowed, f)));
 });
-test("broad learning folders require explicit confirmation", async () => {
- const { saveLearningFolders, BroadFolderError } = await import("../src/server/security-settings.ts");
- for (const broad of ["/", os.homedir()]) {
-  assert.throws(() => saveLearningFolders([broad]), (e: unknown) => e instanceof BroadFolderError && e.folders.length === 1);
-  assert.deepEqual(saveLearningFolders([broad], true), [fs.realpathSync(broad)]);
- }
- assert.deepEqual(saveLearningFolders([allowed]), [fs.realpathSync(allowed)]);
+test("restricted by default; folders from the earlier local setting carry over", () => {
+ settings({ version: 1 });
+ assert.deepEqual(readFileAccessSettings(), { ok: true, settings: { restricted: true, folders: [] } });
+ assert.throws(() => authorizeSourcePath(good), /denied/, "no saved preference = no access");
+ settings({ version: 1, security: { learningFolders: [fs.realpathSync(allowed)] } });
+ assert.deepEqual(readFileAccessSettings(), { ok: true, settings: { restricted: true, folders: [fs.realpathSync(allowed)] } });
+ assert.equal(authorizeSourcePath(good), fs.realpathSync(good));
+ assert.deepEqual((readSettings()?.agent as { fileAccess?: unknown })?.fileAccess, { restricted: true, folders: [fs.realpathSync(allowed)] }, "the UI sees the effective default");
+ settings({ version: 1, agent: { fileAccess: { restricted: false, folders: [] } } });
+ assert.equal(authorizeSourcePath(good), fs.realpathSync(good), "an explicit OFF is honored");
+ fs.rmSync(path.join(process.env.LH_DATA_DIR!, "settings.json"));
+ assert.deepEqual(readFileAccessSettings(), { ok: true, settings: { restricted: true, folders: [] } }, "first boot is restricted too");
+});
+
+test("broad folders need a second click; the size ceiling is 25 MiB", async () => {
+ const { isBroadFolder } = await import("../components/settings/agent-section.tsx");
+ for (const broad of ["/", "~", "~/", "/Users", "/Users/someone", "/System", "/Library", "/Volumes", "/etc"]) assert.equal(isBroadFolder(broad), true, broad);
+ for (const narrow of ["~/Documents/learning", "/Users/someone/Documents", "/Volumes/Drive/Study"]) assert.equal(isBroadFolder(narrow), false, narrow);
+ assert.equal(MAX_SOURCE_FILE_BYTES, 25 * 1024 * 1024);
 });
 test("local API sessions reject missing cookies, foreign hosts and cross-origin requests", () => {
  const secret="a".repeat(64), env={LH_WEB_API_SECRET:secret,LH_WEB_ORIGIN:"http://127.0.0.1:3000"};

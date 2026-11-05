@@ -40,6 +40,7 @@ export * from "./keys.ts";
 export * from "./search.ts";
 export { authStore } from "../store/auth.ts";
 export * from "./settings-body.ts";
+export { fileAccessConfigurationError } from "./file-access.ts";
 export * from "./turn-liveness.ts";
 export * from "./turn-runs.ts";
 export * from "./dismissal-park.ts";
@@ -55,6 +56,5 @@ export { claudeCodeInstallationResponse } from "./claude-code.ts";
 export * from "./custom-provider.ts";
 export { customProviderGet, customProviderMutation } from "./custom-provider-http.ts";
 
-export { BroadFolderError, learningFolders, saveLearningFolders } from "./security-settings.ts";
 export { LOCAL_COOKIE, sameSecret, trustedLocalRequest } from "./local-access.ts";
 export { compileCode } from "./code-compile.ts";

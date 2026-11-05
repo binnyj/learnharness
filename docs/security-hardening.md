@@ -8,7 +8,7 @@ This change extends LearnHarness's existing tools, settings, stores, proxy, and 
 2. Run `npm run dev` from the repository. The launcher binds to `127.0.0.1` and prints a private `/unlock#...` link.
 3. Open that exact link. Its fragment is exchanged for an HttpOnly, SameSite=Strict cookie and removed from browser history. Do not share the link or Terminal output containing it.
 4. Restarting the server revokes its browser sessions. The browser cookie expires after eight hours; the startup link can establish another session while that process runs.
-5. Open Settings → General to approve learning folders. Empty means no agent file access. Use narrow folders containing only learning material.
+5. Open Settings → Agent → Tools → File access to add allowed folders. Restriction is on by default: with no folders the tutor reads no files. Folders approved under the earlier local setting carry over. Use narrow folders containing only learning material; adding a very broad folder (/, home, top-level system folders) asks for a second click.
 
 `npm start` uses the same local launcher after a production build. `npm run desktop:dev` launches the local server and Electron with the private link. Starting Next directly without the launcher fails closed. Remote hosting is not supported by this security configuration.
 
@@ -109,3 +109,15 @@ Scope: learner and tutor-authored code in `code`/`probe_code` questions and prac
 - WebRTC is not governed by CSP.
 - The esbuild binary parses untrusted text on the server. It is a memory-safe Go program and runs only on loopback behind the session check.
 - A learner who pastes a secret into their own code sends it to the model; redaction covers only configured API-key values in tool results and errors.
+
+## Merge with main's file-access system (2026-11-04)
+
+`main` added an optional learner-folder restriction (Settings → Agent → Tools → File access) with multi-folder roots, Windows path handling, one policy snapshot per tool call, and mandatory denials for credential and agent-transcript locations under the home folder. The merge keeps that system as the single implementation and drops the earlier local folder panel and `/api/security/folders`. Owner decisions:
+
+- Restriction is **on by default**. Missing settings, a missing `fileAccess` preference, or a preference without `restricted` all mean restricted; only an explicit `restricted: false` allows broad reads. Folders saved under the earlier `security.learningFolders` setting carry over.
+- The local extras apply on top of main's denials, inside allowed folders too:
+  - names refused anywhere: shell history files, `.netrc`, `.pgpass`, `.npmrc`, `auth.json`, `*credentials*`, `*secret*`, `*token*`, `service-account*.json`, `.pem`/`.p12`/`.pfx`, SSH private key names, and `.ssh`/`.aws`/`.gnupg`/`.kube`/`.docker`/`.gcloud`/`.azure` folders
+  - checked by content: hard-linked files, files over 25 MiB, and PEM-encoded `.key` files (Keynote decks stay readable)
+  - the encrypted credential writer's staging file
+- Adding a very broad folder asks for a second click in the editor. That check runs in the browser only; the server accepts whatever folder list is saved.
+- Credentials stay encrypted. The encrypted writer refuses to write through a symlinked credential file instead of replacing it, and retries Windows sharing violations like main's atomic-write helper.

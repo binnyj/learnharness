@@ -1,4 +1,3 @@
-import { authorizeSourcePath } from "../tools/source-access.ts";
 import { randomUUID } from "node:crypto";
 import type { AssistantMessage, Message, ToolResultMessage, Usage, Tool } from "@earendil-works/pi-ai";
 import { normalizeContext } from "@earendil-works/pi-ai";
@@ -168,20 +167,21 @@ export async function runPdfReaderAgent(
 	input: PdfReaderInput,
 	opts: PdfReaderOptions = {},
 ): Promise<PdfResult> {
-	const headless = opts.headless ?? getHeadless();
 	const maxIterations = opts.maxIterations ?? MAX_ITERATIONS;
-	let pdfPath: string;
-	try { pdfPath = authorizeSourcePath(resolveSourcePath(input.path)); } catch (error) {
-		if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
-		return { path: resolveSourcePath(input.path), question: input.question, brief: `PDF failed: ${(error as Error).message}`, pagesRead: [], pagesConsulted: [] };
+	let pdfPath = input.path;
+	let openError: string | null;
+	// Source denial is an ordinary upfront PDF failure, before parsing,
+	// rendering or any model request (including direct reader invocations).
+	try {
+		pdfPath = resolveSourcePath(input.path);
+		openError = await probeReadable(pdfPath);
+	} catch (err) {
+		openError = err instanceof Error ? err.message : String(err);
 	}
-
-	// Deterministic upfront failure: unreadable / unparseable
-	// for renders — the brief never starts on a broken source.
-	const openError = await probeReadable(pdfPath);
 	if (openError) {
 		return { path: pdfPath, question: input.question, brief: `PDF failed: ${openError}`, pagesRead: [], pagesConsulted: [] };
 	}
+	const headless = opts.headless ?? getHeadless();
 	// No Chrome gate (Wave E, 2026-10-10): pdf_render is native now
 	// (pdfjs paints into @napi-rs/canvas in-process) — the whole pdf-reader
 	// runs browser-free; text tools always worked without one.
@@ -262,7 +262,6 @@ export async function runPdfReaderAgent(
 			for (const call of toolCalls) {
 				const args = (call.arguments ?? {}) as Record<string, unknown>;
 				try {
-					authorizeSourcePath(pdfPath);
 					if (call.name === "pdf_info") {
 						opts.onActivity?.("pdf_info: triaging");
 						const r = await pdfInfoText(pdfPath);
